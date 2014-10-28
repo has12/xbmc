@@ -19397,8 +19397,6 @@ msgctxt "#38111"
 msgid "This category contains other settings for the GUI interface"
 msgstr ""
 
-#empty strings from id 38112 to 38999
-
 #: system/settings/settings.xml
 msgctxt "#39000"
 msgid "HD and up"
@@ -19417,6 +19415,21 @@ msgstr ""
 #: system/settings/settings.xml
 msgctxt "#39003"
 msgid "Accelerate h264"
+msgstr ""
+
+#: system/peripherals.xml
+msgctxt "#38050"
+msgid "Remote button press delay before repeating (ms)"
+msgstr ""
+
+#: system/peripherals.xml
+msgctxt "#38051"
+msgid "Remote button press repeat rate (ms)"
+msgstr ""
+
+#: system/peripherals.xml
+msgctxt "#38052"
+msgid "Remote button press release time (ms)"
 msgstr ""
 
 msgctxt "#38190"
