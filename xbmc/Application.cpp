@@ -4142,6 +4142,7 @@ bool CApplication::OnMessage(CGUIMessage& message)
 
   case GUI_MSG_PLAYBACK_STARTED:
     {
+      int64_t Start = CurrentHostCounter();
 #ifdef TARGET_DARWIN_IOS
       CDarwinUtils::SetScheduling(message.GetMessage());
 #endif
@@ -4172,6 +4173,10 @@ bool CApplication::OnMessage(CGUIMessage& message)
       param["player"]["speed"] = 1;
       param["player"]["playerid"] = g_playlistPlayer.GetCurrentPlaylist();
       CAnnouncementManager::GetInstance().Announce(Player, "xbmc", "OnPlay", m_itemCurrentFile, param);
+      float duration = (CurrentHostCounter()-Start) * 1e-9;
+      if (duration > 0.1f)
+        CLog::LogF(LOGWARNING, "Suspiciously long time to handle GUI_MSG_PLAYBACK_STARTED (%.2fs)", duration);
+
       return true;
     }
     break;
