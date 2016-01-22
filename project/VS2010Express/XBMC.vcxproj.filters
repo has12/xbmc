@@ -3449,6 +3449,9 @@
     <ClCompile Include="..\..\xbmc\dialogs\GUIDialogKeyboardTouch.cpp">
       <Filter>dialogs</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\xbmc\cores\VideoPlayer\DVDDemuxers\DVDDemuxStreamSSIF.cpp">
+      <Filter>cores\VideoPlayer\DVDDemuxers</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\xbmc\platform\win32\pch.h">
@@ -6700,6 +6703,9 @@
     </ClInclude>
     <ClInclude Include="..\..\xbmc\cores\AudioEngine\Engines\ActiveAE\AudioDSPAddons\ActiveAEDSP.h">
       <Filter>cores\AudioEngine\Engines\ActiveAE\AudioDSPAddons</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\xbmc\cores\VideoPlayer\DVDDemuxers\DVDDemuxStreamSSIF.h">
+      <Filter>cores\VideoPlayer\DVDDemuxers</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
