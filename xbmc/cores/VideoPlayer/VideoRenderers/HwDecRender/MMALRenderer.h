@@ -137,7 +137,7 @@ protected:
   RENDER_STEREO_MODE        m_display_stereo_mode;
   bool                      m_StereoInvert;
 
-  CCriticalSection m_sharedSection;
+  CCriticalSection &m_sharedSection;
   MMAL_COMPONENT_T *m_vout;
   MMAL_PORT_T *m_vout_input;
   MMAL_QUEUE_T *m_queue_render;
