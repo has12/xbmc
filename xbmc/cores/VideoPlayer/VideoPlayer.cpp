@@ -3546,7 +3546,9 @@ void CVideoPlayer::SetSpeed(int iSpeed)
     return;
   
   m_newPlaySpeed = iSpeed * DVD_PLAYSPEED_NORMAL;
-  SetPlaySpeed(iSpeed * DVD_PLAYSPEED_NORMAL);
+  if (iSpeed == 2)
+    m_newPlaySpeed = CSettings::GetInstance().GetInt(CSettings::SETTING_VIDEOPLAYER_ACCELERATEDPLAYBACK)*DVD_PLAYSPEED_NORMAL/100;
+  SetPlaySpeed(m_newPlaySpeed);
 }
 
 int CVideoPlayer::GetSpeed()

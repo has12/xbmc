@@ -77,6 +77,21 @@
           </constraints>
           <control type="list" format="string" />
         </setting>
+        <setting id="videoplayer.acceleratedplayback" type="integer" label="38230" help="38231">
+          <level>3</level>
+          <default>200</default>
+          <constraints>
+            <options>
+              <option label="38232">110</option>  <!-- 110% -->
+              <option label="38233">120</option>  <!-- 120% -->
+              <option label="38234">130</option>  <!-- 130% -->
+              <option label="38235">140</option>  <!-- 140% -->
+              <option label="38236">150</option>  <!-- 150% -->
+              <option label="38237">200</option>  <!-- disabled -->
+            </options>
+          </constraints>
+          <control type="spinner" format="string"/>
+        </setting>
       </group>
       <group id="3">
         <requirement>

@@ -19506,3 +19506,39 @@ msgstr ""
 msgctxt "#38207"
 msgid "Show EXIF picture information"
 msgstr ""
+
+#. Description of setting "Videos -> Playback -> accelerated playback
+#: system/settings/settings.xml
+msgctxt "#38230"
+msgid "Accelerated playback speed"
+msgstr ""
+
+#. Description of setting "Videos -> Playback -> accelerated playback
+#: system/settings/settings.xml
+msgctxt "#38231"
+msgid "The first fastforward step can use accelerated playback with audio"
+msgstr ""
+
+msgctxt "#38232"
+msgid "110%"
+msgstr ""
+
+msgctxt "#38233"
+msgid "120%"
+msgstr ""
+
+msgctxt "#38234"
+msgid "130%"
+msgstr ""
+
+msgctxt "#38235"
+msgid "140%"
+msgstr ""
+
+msgctxt "#38236"
+msgid "150%"
+msgstr ""
+
+msgctxt "#38237"
+msgid "Disabled"
+msgstr ""
