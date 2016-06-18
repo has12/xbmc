@@ -6713,6 +6713,21 @@
     <ClInclude Include="..\..\xbmc\cores\VideoPlayer\DVDDemuxers\DVDDemuxMVC.h">
       <Filter>cores\VideoPlayer\DVDDemuxers</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\xbmc\cores\AudioEngine\Engines\ActiveAE\AudioDSPAddons\ActiveAEDSPAddon.h">
+      <Filter>cores\AudioEngine\Engines\ActiveAE\AudioDSPAddons</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\xbmc\cores\AudioEngine\Engines\ActiveAE\AudioDSPAddons\ActiveAEDSPDatabase.h">
+      <Filter>cores\AudioEngine\Engines\ActiveAE\AudioDSPAddons</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\xbmc\cores\AudioEngine\Engines\ActiveAE\AudioDSPAddons\ActiveAEDSPMode.h">
+      <Filter>cores\AudioEngine\Engines\ActiveAE\AudioDSPAddons</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\xbmc\cores\AudioEngine\Engines\ActiveAE\AudioDSPAddons\ActiveAEDSPProcess.h">
+      <Filter>cores\AudioEngine\Engines\ActiveAE\AudioDSPAddons</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\xbmc\cores\AudioEngine\Engines\ActiveAE\AudioDSPAddons\ActiveAEDSP.h">
+      <Filter>cores\AudioEngine\Engines\ActiveAE\AudioDSPAddons</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\..\xbmc\platform\win32\XBMC_PC.rc">
