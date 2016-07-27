@@ -420,7 +420,6 @@ CMMALRenderer::CMMALRenderer() : CThread("MMALRenderer"), m_processThread(this, 
   m_deint_height = 0;
   m_deint_aligned_width = 0;
   m_deint_aligned_height = 0;
-  m_interlace_history = 0;
 
   m_queue_process = mmal_queue_create();
   m_processThread.Create();
@@ -550,7 +549,6 @@ void CMMALRenderer::Run()
         if (interlace_method == VS_INTERLACEMETHOD_AUTO)
           interlace_method = AutoInterlaceMethod();
         bool interlace = (omvb->mmal_buffer->flags & MMAL_BUFFER_HEADER_VIDEO_FLAG_INTERLACED) ? true:false;
-        m_interlace_history = (m_interlace_history << 1) | (interlace ? 1 : 0);
         // we don't keep up when running at 60fps in the background so switch to half rate
         if (!g_graphicsContext.IsFullScreenVideo())
         {
@@ -560,17 +558,13 @@ void CMMALRenderer::Run()
             interlace_method = VS_INTERLACEMETHOD_MMAL_BOB_HALF;
         }
 
-        bool was_enabled = m_deint_input != nullptr;
-
-        if (interlace_method == VS_INTERLACEMETHOD_NONE || !m_interlace_history)
+        if (interlace_method == VS_INTERLACEMETHOD_NONE)
         {
           if (m_deint_input)
             DestroyDeinterlace();
         }
         else if (m_deint_input || interlace)
           CheckConfigurationDeint(omvb->m_width, omvb->m_height, omvb->m_aligned_width, omvb->m_aligned_height, omvb->m_encoding, interlace_method);
-
-        CLog::Log(LOGDEBUG, "%s::%s im:%d in:%d(%llx) flags:%x enabled:%d->%d", CLASSNAME, __func__, interlace_method, interlace, m_interlace_history, omvb->mmal_buffer->flags, was_enabled, m_deint_input != nullptr);
 
         if (m_deint_input)
         {
