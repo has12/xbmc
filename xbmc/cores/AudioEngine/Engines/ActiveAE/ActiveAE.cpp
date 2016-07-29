@@ -2465,7 +2465,7 @@ CSampleBuffer* CActiveAE::SyncStream(CActiveAEStream *stream)
     if (stream->m_processingBuffers)
     {
       stream->m_processingBuffers->SetRR(stream->CalcResampleRatio(error));
-      CLog::Log(LOGDEBUG, "CDVDPlayerAudio::%s rr:%.5f error:%.6f", __FUNCTION__, stream->m_resampleBuffers->m_resampleRatio, error);
+      CLog::Log(LOGDEBUG, "CDVDPlayerAudio::%s rr:%.5f error:%.6f", __FUNCTION__, stream->m_processingBuffers->GetRR(), error);
     }
   }
   else if (stream->m_processingBuffers)
