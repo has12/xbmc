@@ -914,7 +914,9 @@ bool CActiveAEBufferPoolAtempo::ProcessBuffers()
         m_procSample = nullptr;
 
         if (m_changeFilter)
+        {
           ChangeFilter();
+        }
       }
       // some methods like encode require completely filled packets
       else if (!m_fillPackets || (m_procSample->pkt->nb_samples == m_procSample->pkt->max_nb_samples))
@@ -974,11 +976,16 @@ float CActiveAEBufferPoolAtempo::GetDelay()
     delay += (float)samples / m_format.m_sampleRate;
   }
 
-  return delay;;
+  return delay;
 }
 
 void CActiveAEBufferPoolAtempo::SetTempo(float tempo)
 {
+  if (tempo > 2.0)
+    tempo = 2.0;
+  else if (tempo < 0.5)
+    tempo = 0.5;
+
   if (tempo != m_tempo)
     m_changeFilter = true;
 

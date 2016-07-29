@@ -125,6 +125,7 @@ bool CActiveAEFilter::CreateAtempoFilter()
   m_pFilterCtxAtempo = avfilter_graph_alloc_filter(m_pFilterGraph, atempo, "atempo");
   std::string args =  StringUtils::Format("tempo=%f", m_tempo);
   int ret = avfilter_init_str(m_pFilterCtxAtempo, args.c_str());
+
   if (ret < 0)
   {
     CLog::Log(LOGERROR, "CActiveAEFilter::CreateAtempoFilter - avfilter_init_str failed");
@@ -225,7 +226,7 @@ int CActiveAEFilter::ProcessFilter(uint8_t **dst_buffer, int dst_samples, uint8_
       return -1;
     }
   }
-  else if (!m_filterEof)
+  else if (!m_filterEof && m_needData)
   {
     result = av_buffersrc_write_frame(m_pFilterCtxIn, nullptr);
     if (result < 0)
