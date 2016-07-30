@@ -34,6 +34,7 @@
 #include "cores/VideoPlayer/DVDCodecs/Video/MMALCodec.h"
 #include "xbmc/Application.h"
 #include "linux/RBP.h"
+#include "cores/VideoPlayer/DVDClock.h"
 
 extern "C" {
 #include "libavutil/imgutils.h"
@@ -402,7 +403,12 @@ CMMALRenderer::CMMALRenderer() : CThread("MMALRenderer"), m_processThread(this, 
   m_queue_render = nullptr;
   m_queue_process = nullptr;
   m_error = 0.0;
+  m_fps = 0.0;
+  m_lastPts = DVD_NOPTS_VALUE;
+  m_frameInterval = 0.0;
+  m_frameIntervalDiff = 1e5;
   m_vsync_count = ~0U;
+  m_sharpness = -2.0f;
   m_vout_width = 0;
   m_vout_height = 0;
   m_vout_aligned_width = 0;
@@ -446,14 +452,32 @@ void CMMALRenderer::Process()
   CLog::Log(LOGDEBUG, "%s::%s - starting", CLASSNAME, __func__);
   while (!bStop)
   {
-    g_RBP.WaitVsync();
     double dfps = g_graphicsContext.GetFPS();
-    if (dfps <= 0.0)
-      dfps = m_fps;
+    double fps = 0.0;
+    double inc = 1.0;
+    g_RBP.WaitVsync();
+
+    CSingleLock lock(m_sharedSection);
+    // if good enough framerate measure then use it
+    if (dfps > 0.0 && m_frameInterval > 0.0 && m_frameIntervalDiff * 1e-6 < 1e-3)
+    {
+      fps = 1e6 / m_frameInterval;
+      inc = fps / dfps;
+      if (fabs(inc - 1.0) < 1e-2)
+        inc = 1.0;
+      else if (fabs(inc - 0.5) < 1e-2)
+        inc = 0.5;
+      else if (fabs(inc - 24.0/60.0) < 1e-2)
+        inc = 24.0/60.0;
+      if (m_deint)
+        inc *= 2.0;
+    }
     // This algorithm is basically making the decision according to Bresenham's line algorithm.  Imagine drawing a line where x-axis is display frames, and y-axis is video frames
-    m_error += m_fps / dfps;
+    m_error += inc;
+    if (g_advancedSettings.CanLogComponent(LOGVIDEO))
+      CLog::Log(LOGDEBUG, "%s::%s - debug vsync:%d queue:%d fps:%.2f/%.2f/%.2f inc:%f diff:%f", CLASSNAME, __func__, g_RBP.LastVsync(), mmal_queue_length(m_queue_render), fps, m_fps, dfps, inc, m_error);
     // we may need to discard frames if queue length gets too high or video frame rate is above display frame rate
-    while (mmal_queue_length(m_queue_render) > 2 || m_error > 1.0)
+    while (mmal_queue_length(m_queue_render) > 2 || (mmal_queue_length(m_queue_render) > 1 && m_error > 1.0))
     {
       if (m_error > 1.0)
         m_error -= 1.0;
@@ -521,7 +545,6 @@ void CMMALRenderer::Run()
     {
       if (buffer->length > 0)
       {
-        EDEINTERLACEMODE deinterlace_request = CMediaSettings::GetInstance().GetCurrentVideoSettings().m_DeinterlaceMode;
         EINTERLACEMETHOD interlace_method = CMediaSettings::GetInstance().GetCurrentVideoSettings().m_InterlaceMethod;
         if (interlace_method == VS_INTERLACEMETHOD_AUTO)
           interlace_method = AutoInterlaceMethod();
@@ -535,12 +558,12 @@ void CMMALRenderer::Run()
             interlace_method = VS_INTERLACEMETHOD_MMAL_BOB_HALF;
         }
 
-        if (deinterlace_request == VS_DEINTERLACEMODE_OFF || interlace_method == VS_INTERLACEMETHOD_NONE)
+        if (interlace_method == VS_INTERLACEMETHOD_NONE)
         {
           if (m_deint_input)
             DestroyDeinterlace();
         }
-        else if (m_deint_input || deinterlace_request == VS_DEINTERLACEMODE_FORCE || (deinterlace_request == VS_DEINTERLACEMODE_AUTO && interlace))
+        else if (m_deint_input || interlace)
           CheckConfigurationDeint(omvb->m_width, omvb->m_height, omvb->m_aligned_width, omvb->m_aligned_height, omvb->m_encoding, interlace_method);
 
         if (m_deint_input)
@@ -623,6 +646,26 @@ void CMMALRenderer::Run()
   CLog::Log(LOGDEBUG, "%s::%s - stopping", CLASSNAME, __func__);
 }
 
+void CMMALRenderer::UpdateFramerateStats(double pts)
+{
+  double diff = 0.0;
+  if (m_lastPts != DVD_NOPTS_VALUE && pts != DVD_NOPTS_VALUE)
+  {
+    diff = pts - m_lastPts;
+    if (m_frameInterval == 0.0)
+      m_frameInterval = diff;
+    else if (diff > 0.0)
+    {
+      m_frameIntervalDiff = m_frameIntervalDiff * 0.9 + 0.1 * fabs(m_frameInterval - diff);
+      m_frameInterval = m_frameInterval * 0.9 + diff * 0.1;
+    }
+  }
+  if (pts != DVD_NOPTS_VALUE)
+    m_lastPts = pts;
+  if (VERBOSE && g_advancedSettings.CanLogComponent(LOGVIDEO))
+    CLog::Log(LOGDEBUG, "%s::%s pts:%.3f diff:%.3f m_frameInterval:%.6f m_frameIntervalDiff:%.6f", CLASSNAME, __func__, pts*1e-6, diff * 1e-6 , m_frameInterval * 1e-6, m_frameIntervalDiff *1e-6);
+}
+
 void CMMALRenderer::AddVideoPictureHW(DVDVideoPicture& pic, int index)
 {
   if (m_format != RENDER_FMT_MMAL)
@@ -637,6 +680,7 @@ void CMMALRenderer::AddVideoPictureHW(DVDVideoPicture& pic, int index)
     CLog::Log(LOGDEBUG, "%s::%s MMAL - %p (%p) %i", CLASSNAME, __func__, buffer, buffer->mmal_buffer, index);
 
   m_buffers[index] = buffer->Acquire();
+  UpdateFramerateStats(pic.pts);
 }
 
 bool CMMALRenderer::Configure(unsigned int width, unsigned int height, unsigned int d_width, unsigned int d_height, float fps, unsigned flags, ERenderFormat format, unsigned extended_format, unsigned int orientation)
@@ -650,6 +694,10 @@ bool CMMALRenderer::Configure(unsigned int width, unsigned int height, unsigned 
 
   m_fps = fps;
   m_iFlags = flags;
+  m_error = 0.0;
+  m_lastPts = DVD_NOPTS_VALUE;
+  m_frameInterval = 0.0;
+  m_frameIntervalDiff = 1e5;
 
   // cause SetVideoRect to trigger - needed after a hdmi mode change
   m_src_rect.SetRect(0, 0, 0, 0);
@@ -750,6 +798,15 @@ void CMMALRenderer::RenderUpdate(bool clear, DWORD flags, DWORD alpha)
   }
 
   ManageRenderArea();
+
+  // if sharpness setting has changed, we should update it
+  if (m_sharpness != CMediaSettings::GetInstance().GetCurrentVideoSettings().m_Sharpness)
+  {
+    m_sharpness = CMediaSettings::GetInstance().GetCurrentVideoSettings().m_Sharpness;
+    char command[80], response[80];
+    sprintf(command, "scaling_sharpness %d", ((int)(50.0f * (m_sharpness + 1.0f) + 0.5f)));
+    vc_gencmd(response, sizeof response, command);
+  }
 
   if (m_format != RENDER_FMT_MMAL)
   {
@@ -906,16 +963,6 @@ bool CMMALRenderer::RenderCapture(CRenderCapture* capture)
 // YV12 Texture creation, deletion, copying + clearing
 //********************************************************************************************************
 
-bool CMMALRenderer::Supports(EDEINTERLACEMODE mode)
-{
-  if(mode == VS_DEINTERLACEMODE_OFF
-  || mode == VS_DEINTERLACEMODE_AUTO
-  || mode == VS_DEINTERLACEMODE_FORCE)
-    return true;
-
-  return false;
-}
-
 bool CMMALRenderer::Supports(EINTERLACEMETHOD method)
 {
   if (method == VS_INTERLACEMETHOD_AUTO)
@@ -938,7 +985,8 @@ bool CMMALRenderer::Supports(ERENDERFEATURE feature)
       feature == RENDERFEATURE_ZOOM            ||
       feature == RENDERFEATURE_ROTATION        ||
       feature == RENDERFEATURE_VERTICAL_SHIFT  ||
-      feature == RENDERFEATURE_PIXEL_RATIO)
+      feature == RENDERFEATURE_PIXEL_RATIO     ||
+      feature == RENDERFEATURE_SHARPNESS)
     return true;
 
   return false;

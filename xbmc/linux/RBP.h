@@ -62,6 +62,7 @@ public:
   ~CRBP();
 
   bool Initialize();
+  void InitializeSettings();
   void LogFirmwareVerison();
   void Deinitialize();
   int GetArmMem() { return m_arm_mem; }
@@ -81,6 +82,11 @@ public:
   uint32_t WaitVsync(uint32_t target = ~0U);
   void VSyncCallback();
   int GetMBox() { return m_mb; }
+  double AdjustHDMIClock(double adjust);
+  double GetAdjustHDMIClock() { return m_last_pll_adjust; }
+
+  void SuspendVideoOutput();
+  void ResumeVideoOutput();
 
 private:
   DllBcmHost *m_DllBcmHost;
@@ -102,7 +108,54 @@ private:
   CCriticalSection m_critSection;
 
   int m_mb;
+  CGPUMEM *m_p;
+  int m_x;
+  int m_y;
+  bool m_enabled;
+  double m_last_pll_adjust;
+  public:
+  void init_cursor();
+  void set_cursor(const void *pixels, int width, int height, int hotspot_x, int hotspot_y);
+  void update_cursor(int x, int y, bool enabled);
+  void uninit_cursor();
 };
 
 extern CRBP g_RBP;
+
+
+#include "libavutil/pixfmt.h"
+
+#include <stdint.h>
+
+struct DVDVideoPicture;
+struct SwsContext;
+struct AVCodecContext;
+#include "cores/VideoPlayer/DVDCodecs/Video/MMALFFmpeg.h"
+
+class CPixelConverter
+{
+public:
+  CPixelConverter();
+  ~CPixelConverter() { Dispose(); }
+
+  bool Open(AVPixelFormat pixfmt, AVPixelFormat target, unsigned int width, unsigned int height, void *opaque);
+  void Dispose();
+  bool Decode(const uint8_t* pData, unsigned int size);
+  void GetPicture(DVDVideoPicture& dvdVideoPicture);
+  AVFrame* AllocatePicture(int iWidth, int iHeight);
+  void FreePicture(AVFrame* pPicture);
+
+private:
+  unsigned int     m_width;
+  unsigned int     m_height;
+  SwsContext*      m_swsContext;
+  AVFrame* m_buf;
+  std::deque<CGPUMEM *> m_freeBuffers;
+  bool m_closing;
+  AVCodecContext m_avctx;
+  CProcessInfo *m_processInfo;
+  MMAL::CDecoder *m_decoder;
+  CDVDVideoCodecFFmpeg *m_vcffmpeg;
+};
+
 #endif

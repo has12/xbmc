@@ -47,6 +47,10 @@
 
 #include "linux/RBP.h"
 
+#ifndef FF_BUG_GMC_UNSUPPORTED
+#define FF_BUG_GMC_UNSUPPORTED 0
+#endif
+
 using namespace KODI::MESSAGING;
 
 #define CLASSNAME "CMMALVideoBuffer"
@@ -241,8 +245,6 @@ void CMMALVideo::dec_output_port_cb(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buf
       // we don't keep up when running at 60fps in the background so switch to half rate
       if (m_fps > 40.0f && !g_graphicsContext.IsFullScreenVideo() && !(m_num_decoded & 1))
         wanted = false;
-      if (g_advancedSettings.m_omxDecodeStartWithValidFrame && (buffer->flags & MMAL_BUFFER_HEADER_FLAG_CORRUPTED))
-        wanted = false;
       m_num_decoded++;
       if (g_advancedSettings.CanLogComponent(LOGVIDEO))
         CLog::Log(LOGDEBUG, "%s::%s - %p (%p) buffer_size(%u) dts:%.3f pts:%.3f flags:%x:%x",
@@ -364,8 +366,13 @@ bool CMMALVideo::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options)
   if (g_advancedSettings.CanLogComponent(LOGVIDEO))
     CLog::Log(LOGDEBUG, "%s::%s usemmal:%d software:%d %dx%d renderer:%p", CLASSNAME, __func__, CSettings::GetInstance().GetBool(CSettings::SETTING_VIDEOPLAYER_USEMMAL), hints.software, hints.width, hints.height, options.m_opaque_pointer);
 
+  // This occurs at start of m2ts files before streams have been fully identified - just ignore
+  if (!hints.width)
+    return false;
   // we always qualify even if DVDFactoryCodec does this too.
   if (!CSettings::GetInstance().GetBool(CSettings::SETTING_VIDEOPLAYER_USEMMAL) || hints.software)
+    return false;
+  if (hints.workaround_bugs & FF_BUG_GMC_UNSUPPORTED)
     return false;
 
   m_processInfo.SetVideoDeintMethod("none");
@@ -388,13 +395,17 @@ bool CMMALVideo::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options)
   switch (hints.codec)
   {
     case AV_CODEC_ID_H264:
+    case AV_CODEC_ID_H264_MVC:
       // H.264
       m_codingType = MMAL_ENCODING_H264;
       m_pFormatName = "mmal-h264";
-      if (CSettings::GetInstance().GetBool(CSettings::SETTING_VIDEOPLAYER_SUPPORTMVC))
+      if ((hints.codec_tag == MKTAG('M', 'V', 'C', '1') || hints.codec_tag == MKTAG('A', 'M', 'V', 'C')) &&
+        CSettings::GetInstance().GetBool(CSettings::SETTING_VIDEOPLAYER_SUPPORTMVC))
       {
         m_codingType = MMAL_ENCODING_MVC;
         m_pFormatName= "mmal-mvc";
+        if (hints.stereo_mode == "mono")
+          hints.stereo_mode = "block_lr";
       }
     break;
     case AV_CODEC_ID_H263:
@@ -577,6 +588,8 @@ bool CMMALVideo::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options)
   m_speed = DVD_PLAYSPEED_NORMAL;
 
   m_processInfo.SetVideoDecoderName(m_pFormatName, true);
+  m_processInfo.SetVideoDimensions(m_decoded_width, m_decoded_height);
+  m_processInfo.SetVideoDAR(m_aspect_ratio);
 
   return true;
 }
@@ -810,7 +823,7 @@ bool CMMALVideo::GetPicture(DVDVideoPicture* pDvdVideoPicture)
     pDvdVideoPicture->pts = buffer->mmal_buffer->pts == MMAL_TIME_UNKNOWN ? DVD_NOPTS_VALUE : buffer->mmal_buffer->pts;
 
     pDvdVideoPicture->iFlags  = DVP_FLAG_ALLOCATED;
-    if (buffer->mmal_buffer->flags & MMAL_BUFFER_HEADER_FLAG_USER3)
+    if (buffer->mmal_buffer->flags & MMAL_BUFFER_HEADER_FLAG_USER3 || (g_advancedSettings.m_omxDecodeStartWithValidFrame && (buffer->mmal_buffer->flags & MMAL_BUFFER_HEADER_FLAG_CORRUPTED)))
       pDvdVideoPicture->iFlags |= DVP_FLAG_DROPPED;
     if (g_advancedSettings.CanLogComponent(LOGVIDEO))
       CLog::Log(LOGINFO, "%s::%s dts:%.3f pts:%.3f flags:%x:%x MMALBuffer:%p mmal_buffer:%p", CLASSNAME, __func__,

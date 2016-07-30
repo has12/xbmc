@@ -41,6 +41,8 @@
 
 #if defined(TARGET_DARWIN)
 #include "osx/CocoaPowerSyscall.h"
+#elif defined(TARGET_RASPBERRY_PI)
+#include "linux/RaspberryPIPowerSyscall.h"
 #elif defined(TARGET_ANDROID)
 #include "android/AndroidPowerSyscall.h"
 #elif defined(TARGET_POSIX)
@@ -63,6 +65,7 @@ CPowerManager g_powerManager;
 CPowerManager::CPowerManager()
 {
   m_instance = NULL;
+  m_suspended = false;
 }
 
 CPowerManager::~CPowerManager()
@@ -76,6 +79,8 @@ void CPowerManager::Initialize()
 
 #if defined(TARGET_DARWIN)
   m_instance = new CCocoaPowerSyscall();
+#elif defined(TARGET_RASPBERRY_PI)
+  m_instance = new CRaspberryPIPowerSyscall();
 #elif defined(TARGET_ANDROID)
   m_instance = new CAndroidPowerSyscall();
 #elif defined(TARGET_POSIX)
@@ -239,6 +244,12 @@ void CPowerManager::ProcessEvents()
   nesting--;
 }
 
+bool CPowerManager::ProcessAction(const CAction& action)
+{
+  return m_instance->ProcessAction(action);
+}
+
+
 void CPowerManager::OnSleep()
 {
   CAnnouncementManager::GetInstance().Announce(System, "xbmc", "OnSleep");
@@ -250,7 +261,7 @@ void CPowerManager::OnSleep()
   CLog::Log(LOGNOTICE, "%s: Running sleep jobs", __FUNCTION__);
 
   // stop lirc
-#if defined(HAS_LIRC) || defined(HAS_IRSERVERSUITE)
+#if 0 //defined(HAS_LIRC) || defined(HAS_IRSERVERSUITE)
   CLog::Log(LOGNOTICE, "%s: Stopping lirc", __FUNCTION__);
   CBuiltins::GetInstance().Execute("LIRC.Stop");
 #endif
@@ -263,18 +274,19 @@ void CPowerManager::OnSleep()
   g_application.StopScreenSaverTimer();
   g_application.CloseNetworkShares();
   CAEFactory::Suspend();
+  if (dialog)
+    dialog->Close();
+
+  m_suspended = true;
 }
 
 void CPowerManager::OnWake()
 {
+  m_suspended = false;
   CLog::Log(LOGNOTICE, "%s: Running resume jobs", __FUNCTION__);
 
   // reset out timers
   g_application.ResetShutdownTimers();
-
-  CGUIDialogBusy* dialog = (CGUIDialogBusy*)g_windowManager.GetWindow(WINDOW_DIALOG_BUSY);
-  if (dialog)
-    dialog->Close();
 
 #if defined(HAS_SDL) || defined(TARGET_WINDOWS)
   if (g_Windowing.IsFullScreen())
@@ -288,7 +300,7 @@ void CPowerManager::OnWake()
 #endif
 
   // restart lirc
-#if defined(HAS_LIRC) || defined(HAS_IRSERVERSUITE)
+#if 0 // defined(HAS_LIRC) || defined(HAS_IRSERVERSUITE)
   CLog::Log(LOGNOTICE, "%s: Restarting lirc", __FUNCTION__);
   CBuiltins::GetInstance().Execute("LIRC.Start");
 #endif

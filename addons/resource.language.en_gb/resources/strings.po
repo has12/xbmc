@@ -1982,15 +1982,7 @@ msgctxt "#434"
 msgid "From %s at %i %s"
 msgstr ""
 
-#: xbmc/Application.cpp
-msgctxt "#435"
-msgid "No optical disc drive detected"
-msgstr ""
-
-#: xbmc/Application.cpp
-msgctxt "#436"
-msgid "You need an optical disc drive to play this video"
-msgstr ""
+#empty strings from id 435 to 436
 
 msgctxt "#437"
 msgid "Removable disk"
@@ -3069,6 +3061,20 @@ msgstr ""
 #: xbmc/settings/AdvancedSettings.cpp
 msgctxt "#681"
 msgid "Verbose logging for the [B]Webserver[/B] component"
+msgstr ""
+
+msgctxt "#697"
+msgid "Verbose logging for OMXPLAYER"
+msgstr ""
+
+#: xbmc/settings/AdvancedSettings.cpp
+msgctxt "#698"
+msgid "Dump video frames to debug file"
+msgstr ""
+
+#: xbmc/settings/AdvancedSettings.cpp
+msgctxt "#699"
+msgid "Dump audio frames to debug file"
 msgstr ""
 
 #empty strings from id 682 to 699
@@ -7830,7 +7836,12 @@ msgctxt "#15016"
 msgid "Games"
 msgstr ""
 
-#empty strings from id 15017 to 15018
+#: xbmc/video/VideoDatabase.cpp
+msgctxt "#15017"
+msgid "What would you like to do with items from addons?"
+msgstr ""
+
+#empty string from id 15018
 
 msgctxt "#15019"
 msgid "Add"
@@ -8463,17 +8474,7 @@ msgctxt "#16039"
 msgid "Off"
 msgstr ""
 
-#: xbmc/video/dialogs/GUIDialogVideoSettings.cpp
-msgctxt "#16040"
-msgid "Auto"
-msgstr ""
-
-#: xbmc/video/dialogs/GUIDialogVideoSettings.cpp
-msgctxt "#16041"
-msgid "On"
-msgstr ""
-
-#empty strings from id 16042 to 16099
+#empty strings from id 16040 to 16099
 
 #: xbmc/video/windows/GUIWindowVideoNav.cpp
 msgctxt "#16100"
@@ -8631,7 +8632,7 @@ msgstr ""
 
 #: xbmc/video/dialogs/GUIDialogVideoSettings.cpp
 msgctxt "#16313"
-msgid "VDPAU - Sharpness"
+msgid "Sharpness"
 msgstr ""
 
 #: xbmc/video/dialogs/GUIDialogVideoSettings.cpp
@@ -12348,7 +12349,7 @@ msgstr ""
 
 #: system/settings/settings.xml
 msgctxt "#20433"
-msgid "Extract thumbnails and video information"
+msgid "Extract video information from files"
 msgstr ""
 
 #: xbmc/dialogs/GUIDialogSmartPlaylistRule.cpp
@@ -16784,7 +16785,7 @@ msgstr ""
 #. Description of setting with label #20433 "Extract thumbnails and video information"
 #: system/settings/settings.xml
 msgctxt "#36178"
-msgid "Extract thumbnails and metadata information such as codec and aspect ratio from videos."
+msgid "Extract metadata information such as codec and aspect ratio from videos."
 msgstr ""
 
 #. Description of setting with label #20419 "Replace file names with library titles"
@@ -16796,7 +16797,7 @@ msgstr ""
 #. Description of setting with label #20433 "Extract thumbnails and video information"
 #: system/settings/settings.xml
 msgctxt "#36180"
-msgid "Extract thumbnails and information, such as codecs and aspect ratio, to display in library mode."
+msgid "Extract thumbnails, to display in library Mode."
 msgstr ""
 
 #: system/settings/settings.xml
@@ -17428,7 +17429,11 @@ msgctxt "#36305"
 msgid "This category contains the settings for how picture file lists are handled."
 msgstr ""
 
-#empty string with id 36306
+#. Description of setting "Pictures -> Show EXIF picture information" with label #38207
+#: system/settings/settings.xml
+msgctxt "#36306"
+msgid "If EXIF information exists (date, time, camera used, etc.), it will be displayed."
+msgstr ""
 
 #. Description of setting with label #13360 "Automatically generate thumbnails"
 #: system/settings/settings.xml
@@ -19136,6 +19141,15 @@ msgstr ""
 #: system/settings/rbp.xml
 msgctxt "#38010"
 msgid "GPU accelerated"
+
+#: system/settings/settings.xml
+msgctxt "#38040"
+msgid "Support browsing into archives"
+msgstr ""
+
+#: system/settings/settings.xml
+msgctxt "#38041"
+msgid "Allow viewing and playing files in archives (e.g. zip, rar)"
 msgstr ""
 
 #. Setting #38011 "Show All Items entry"
@@ -19301,6 +19315,31 @@ msgstr ""
 
 #empty strings from id 38043 to 38099
 
+#: system/settings/rbp.xml
+msgctxt "#38114"
+msgid "Use GPU for jpeg acceleration"
+msgstr ""
+
+#: system/settings/rbp.xml
+msgctxt "#38115"
+msgid "This option uses the GPU for encoding and decoding jpegs"
+msgstr ""
+
+#: system/settings/settings.xml
+msgctxt "#38007"
+msgid "Boost centre channel when downmixing"
+msgstr ""
+
+#: system/settings/settings.xml
+msgctxt "#38008"
+msgid "Increase this value to make the dialogue louder compared to background sounds when downmixing multichannel audio"
+msgstr ""
+
+#: system/settings/settings.xml
+msgctxt "#38009"
+msgid "%i dB"
+msgstr ""
+
 #. Description of section #14200 "Player""
 #: system/settings/settings.xml
 msgctxt "#38100"
@@ -19373,8 +19412,6 @@ msgctxt "#38111"
 msgid "This category contains other settings for the GUI interface"
 msgstr ""
 
-#empty strings from id 38112 to 38999
-
 #: system/settings/settings.xml
 msgctxt "#39000"
 msgid "HD and up"
@@ -19393,4 +19430,110 @@ msgstr ""
 #: system/settings/settings.xml
 msgctxt "#39003"
 msgid "Accelerate h264"
+msgstr ""
+
+#: system/peripherals.xml
+msgctxt "#38050"
+msgid "Remote button press delay before repeating (ms)"
+msgstr ""
+
+#: system/peripherals.xml
+msgctxt "#38051"
+msgid "Remote button press repeat rate (ms)"
+msgstr ""
+
+#: system/peripherals.xml
+msgctxt "#38052"
+msgid "Remote button press release time (ms)"
+msgstr ""
+
+msgctxt "#38190"
+msgid "Extract thumbnails from video files"
+msgstr ""
+
+msgctxt "#38191"
+msgid "Audio output latency"
+msgstr ""
+
+#: system/settings/rbp.xml
+msgctxt "#38192"
+msgid "Increase this to protect against underruns, reduce to have lower latency gui sounds"
+msgstr ""
+
+#: system/settings/rbp.xml
+msgctxt "#38193"
+msgid "%i ms"
+msgstr ""
+
+#. Description of setting "System -> Audio Ouput -> A/V sync method" with label #38200
+#: system/settings/settings.xml
+msgctxt "#38200"
+msgid "PLL adustment to maintain audio/video sync"
+msgstr ""
+
+#. Description of setting "Videos -> Playback -> A/V sync method" with label #38201
+#: system/settings/settings.xml
+msgctxt "#38201"
+msgid "Allows sync adjustment without resampling. Lower the settings if you get audio/video dropouts."
+msgstr ""
+
+msgctxt "#38202"
+msgid "Off"
+msgstr ""
+
+msgctxt "#38203"
+msgid "Low"
+msgstr ""
+
+msgctxt "#38204"
+msgid "Medium"
+msgstr ""
+
+msgctxt "#38205"
+msgid "High"
+msgstr ""
+
+msgctxt "#38206"
+msgid "Max"
+msgstr ""
+
+#: system/settings/settings.xml
+msgctxt "#38207"
+msgid "Show EXIF picture information"
+msgstr ""
+
+#. Description of setting "Videos -> Playback -> accelerated playback
+#: system/settings/settings.xml
+msgctxt "#38230"
+msgid "Accelerated playback speed"
+msgstr ""
+
+#. Description of setting "Videos -> Playback -> accelerated playback
+#: system/settings/settings.xml
+msgctxt "#38231"
+msgid "The first fastforward step can use accelerated playback with audio"
+msgstr ""
+
+msgctxt "#38232"
+msgid "110%"
+msgstr ""
+
+msgctxt "#38233"
+msgid "120%"
+msgstr ""
+
+msgctxt "#38234"
+msgid "130%"
+msgstr ""
+
+msgctxt "#38235"
+msgid "140%"
+msgstr ""
+
+msgctxt "#38236"
+msgid "150%"
+msgstr ""
+
+msgctxt "#38237"
+msgid "Disabled"
 msgstr ""

@@ -23,12 +23,17 @@
 #ifdef HAS_OMXPLAYER
 
 #include "VideoPlayer.h"
+#include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "settings/MediaSettings.h"
 #include "DVDInputStreams/DVDInputStream.h"
 #include "cores/omxplayer/OMXPlayerAudio.h"
 #include "cores/omxplayer/OMXPlayerVideo.h"
 #include "threads/SystemClock.h"
+
+#ifndef FF_BUG_GMC_UNSUPPORTED
+#define FF_BUG_GMC_UNSUPPORTED 0
+#endif
 
 #define PREDICATE_RETURN(lh, rh) \
   do { \
@@ -81,7 +86,9 @@ bool OMXPlayerUnsuitable(bool m_HasVideo, bool m_HasAudio, CDVDDemux* m_pDemuxer
       CDVDStreamInfo hint(*stream, true);
 
       bool supported = false;
-      if ((hint.codec == AV_CODEC_ID_MPEG1VIDEO || hint.codec == AV_CODEC_ID_MPEG2VIDEO) && g_RBP.GetCodecMpg2())
+      if (hint.workaround_bugs & FF_BUG_GMC_UNSUPPORTED)
+        ;
+      else if ((hint.codec == AV_CODEC_ID_MPEG1VIDEO || hint.codec == AV_CODEC_ID_MPEG2VIDEO) && g_RBP.GetCodecMpg2())
         supported = true;
       else if ((hint.codec == AV_CODEC_ID_VC1 || hint.codec == AV_CODEC_ID_WMV3) && g_RBP.GetCodecWvc1())
         supported = true;
@@ -134,15 +141,11 @@ bool OMXDoProcessing(struct SOmxPlayerState &m_OmxPlayerState, int m_playSpeed, 
       m_OmxPlayerState.interlace_method = CMediaSettings::GetInstance().GetCurrentVideoSettings().m_InterlaceMethod;
 
     // if deinterlace setting has changed, we should close and open video
-    if (m_OmxPlayerState.current_deinterlace != CMediaSettings::GetInstance().GetCurrentVideoSettings().m_DeinterlaceMode ||
-       (m_OmxPlayerState.current_deinterlace != VS_DEINTERLACEMODE_OFF &&
-        m_OmxPlayerState.interlace_method != CMediaSettings::GetInstance().GetCurrentVideoSettings().m_InterlaceMethod))
+    if (m_OmxPlayerState.interlace_method != CMediaSettings::GetInstance().GetCurrentVideoSettings().m_InterlaceMethod)
     {
-      CLog::Log(LOGNOTICE, "%s - Reopen stream due to interlace change (%d,%d,%d,%d)", __FUNCTION__,
-        m_OmxPlayerState.current_deinterlace, CMediaSettings::GetInstance().GetCurrentVideoSettings().m_DeinterlaceMode,
+      CLog::Log(LOGNOTICE, "%s - Reopen stream due to interlace change (%d,%d)", __FUNCTION__,
         m_OmxPlayerState.interlace_method, CMediaSettings::GetInstance().GetCurrentVideoSettings().m_InterlaceMethod);
 
-      m_OmxPlayerState.current_deinterlace = CMediaSettings::GetInstance().GetCurrentVideoSettings().m_DeinterlaceMode;
       m_OmxPlayerState.interlace_method    = CMediaSettings::GetInstance().GetCurrentVideoSettings().m_InterlaceMethod;
       reopen_stream = true;
     }
@@ -162,15 +165,15 @@ bool OMXDoProcessing(struct SOmxPlayerState &m_OmxPlayerState, int m_playSpeed, 
     if (!m_HasVideo && m_HasAudio)
       video_fifo_high = true;
 
-    #ifdef _DEBUG
+  if (g_advancedSettings.CanLogComponent(LOGOMXPLAYER))
+  {
     CLog::Log(LOGDEBUG, "%s::%s M:%.6f-%.6f (A:%.6f V:%.6f) PEF:%d%d%d S:%.2f A:%.2f V:%.2f/T:%.2f (A:%d%d V:%d%d) A:%d%% V:%d%%", "CVideoPlayer", __FUNCTION__,
       m_OmxPlayerState.stamp*1e-6, m_OmxPlayerState.av_clock.OMXClockAdjustment()*1e-6, audio_pts*1e-6, video_pts*1e-6,
       m_OmxPlayerState.av_clock.OMXIsPaused(), m_OmxPlayerState.bOmxSentEOFs, not_accepts_data, m_playSpeed * (1.0f/DVD_PLAYSPEED_NORMAL),
       audio_pts == DVD_NOPTS_VALUE ? 0.0:audio_fifo, video_pts == DVD_NOPTS_VALUE ? 0.0:video_fifo, m_OmxPlayerState.threshold,
       audio_fifo_low, audio_fifo_high, video_fifo_low, video_fifo_high,
       m_VideoPlayerAudio->GetLevel(), m_VideoPlayerVideo->GetLevel());
-    #endif
-
+  }
     if(!m_Pause && (m_OmxPlayerState.bOmxSentEOFs || not_accepts_data || (audio_fifo_high && video_fifo_high) || m_playSpeed != DVD_PLAYSPEED_NORMAL))
     {
       if (m_OmxPlayerState.av_clock.OMXIsPaused())

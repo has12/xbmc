@@ -24,6 +24,7 @@
 #include "guilib/GraphicContext.h"
 #include "utils/MathUtils.h"
 #include "threads/SingleLock.h"
+#include "utils/CPUInfo.h"
 #include "utils/log.h"
 #include "utils/StringUtils.h"
 #include "windowing/WindowingFactory.h"
@@ -797,19 +798,15 @@ void CRenderManager::FlipPage(volatile std::atomic_bool& bStop, double pts /* = 
 
   EPRESENTMETHOD presentmethod;
 
-  EDEINTERLACEMODE deinterlacemode = CMediaSettings::GetInstance().GetCurrentVideoSettings().m_DeinterlaceMode;
   EINTERLACEMETHOD interlacemethod = AutoInterlaceMethodInternal(CMediaSettings::GetInstance().GetCurrentVideoSettings().m_InterlaceMethod);
 
-  if (deinterlacemode == VS_DEINTERLACEMODE_OFF)
+  if (interlacemethod == VS_INTERLACEMETHOD_NONE)
   {
     presentmethod = PRESENT_METHOD_SINGLE;
     sync = FS_NONE;
   }
   else
   {
-    if (deinterlacemode == VS_DEINTERLACEMODE_AUTO && sync == FS_NONE)
-      presentmethod = PRESENT_METHOD_SINGLE;
-    else
     {
       bool invert = false;
       if (interlacemethod == VS_INTERLACEMETHOD_RENDER_BLEND)
@@ -835,10 +832,6 @@ void CRenderManager::FlipPage(volatile std::atomic_bool& bStop, double pts /* = 
 
       if (presentmethod != PRESENT_METHOD_SINGLE)
       {
-        /* default to odd field if we want to deinterlace and don't know better */
-        if (deinterlacemode == VS_DEINTERLACEMODE_FORCE && sync == FS_NONE)
-          sync = FS_TOP;
-
         /* invert present field */
         if (invert)
         {
@@ -927,7 +920,7 @@ void CRenderManager::Render(bool clear, DWORD flags, DWORD alpha, bool gui)
 
     if (m_renderDebug)
     {
-      std::string audio, video, player, vsync;
+      std::string audio, video, player, vsync, cpu;
 
       m_playerPort->GetDebugInfo(audio, video, player);
 
@@ -941,8 +934,10 @@ void CRenderManager::Render(bool clear, DWORD flags, DWORD alpha, bool gui)
                                      missedvblanks,
                                      clockspeed - 100.0);
       }
+      cpu = g_cpuInfo.GetCoresUsageString();
 
-      m_debugRenderer.SetInfo(audio, video, player, vsync);
+      std::vector<std::string> infos = { audio, video, player, vsync, cpu };
+      m_debugRenderer.SetInfo(infos);
       m_debugRenderer.Render(src, dst, view);
 
       m_debugTimer.Set(1000);
@@ -1064,7 +1059,11 @@ void CRenderManager::UpdateDisplayLatency()
     refresh = 0; // No idea about refresh rate when windowed, just get the default latency
   m_displayLatency = (double) g_advancedSettings.GetDisplayLatency(refresh);
 
+#ifdef TARGET_RASPBERRY_PI
+  int buffers = CSettings::GetInstance().GetBool("videoplayer.usedisplayasclock") ? 1:2;
+#else
   int buffers = g_Windowing.NoOfBuffers();
+#endif
   m_displayLatency += (buffers - 1) / fps;
 
 }
@@ -1194,17 +1193,11 @@ bool CRenderManager::Supports(ERENDERFEATURE feature)
     return false;
 }
 
-bool CRenderManager::Supports(EDEINTERLACEMODE method)
-{
-  CSingleLock lock(m_statelock);
-  if (m_pRenderer)
-    return m_pRenderer->Supports(method);
-  else
-    return false;
-}
-
 bool CRenderManager::Supports(EINTERLACEMETHOD method)
 {
+  if (method == VS_INTERLACEMETHOD_NONE)
+    return true;
+  
   CSingleLock lock(m_statelock);
   if (m_pRenderer)
     return m_pRenderer->Supports(method);

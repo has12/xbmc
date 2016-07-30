@@ -30,11 +30,26 @@
 #include "utils/log.h"
 #include "powermanagement/PowerManager.h"
 
+#ifdef TARGET_RASPBERRY_PI
+#include "utils/TimeUtils.h"
+#include "guilib/Resolution.h"
+#include "addons/Skin.h"
+#include "utils/XMLUtils.h"
+#include "utils/StringUtils.h"
+#include "guilib/Texture.h"
+#include "linux/RBP.h"
+#include "input/InputManager.h"
+#endif
+
 bool CWinEventsLinux::m_initialized = false;
 CLinuxInputDevices CWinEventsLinux::m_devices;
 
 CWinEventsLinux::CWinEventsLinux()
 {
+#ifdef TARGET_RASPBERRY_PI
+  m_last_mouse_move_time = 0;
+  m_mouse_state = -1;
+#endif
 }
 
 void CWinEventsLinux::RefreshDevices()
@@ -48,6 +63,81 @@ bool CWinEventsLinux::IsRemoteLowBattery()
   return false;
 }
 
+#ifdef TARGET_RASPBERRY_PI
+bool CWinEventsLinux::LoadXML(const std::string strFileName)
+{
+  RESOLUTION_INFO m_coordsRes; // resolution that the window coordinates are in.
+  // Find appropriate skin folder + resolution to load from
+  std::string strFileNameLower = strFileName;
+  StringUtils::ToLower(strFileNameLower);
+  std::string strLowerPath = g_SkinInfo->GetSkinPath(strFileNameLower, &m_coordsRes);
+  std::string strPath = g_SkinInfo->GetSkinPath(strFileName, &m_coordsRes);
+
+  TiXmlElement* pRootElement = NULL;
+  CXBMCTinyXML xmlDoc;
+  std::string strPathLower = strPath;
+  StringUtils::ToLower(strPathLower);
+  if (!xmlDoc.LoadFile(strPath) && !xmlDoc.LoadFile(strPathLower) && !xmlDoc.LoadFile(strLowerPath))
+  {
+    CLog::Log(LOGERROR, "unable to load:%s, Line %d\n%s", strPath.c_str(), xmlDoc.ErrorRow(), xmlDoc.ErrorDesc());
+    return false;
+  }
+  pRootElement = (TiXmlElement*)xmlDoc.RootElement()->Clone();
+  CLog::Log(LOGDEBUG, "%s: load:%s,%s,%s", __FUNCTION__, strPath.c_str(), strPathLower.c_str(), strLowerPath.c_str());
+
+  if (!pRootElement)
+    return false;
+
+  if (strcmpi(pRootElement->Value(), "window"))
+  {
+    CLog::Log(LOGERROR, "file : XML file doesnt contain <window>");
+    return false;
+  }
+
+  TiXmlElement *pChild = pRootElement->FirstChildElement();
+  while (pChild)
+  {
+    if (strcmpi(pChild->Value(), "controls") == 0)
+    {
+      TiXmlElement *pControl = pChild->FirstChildElement();
+      while (pControl)
+      {
+        CLog::Log(LOGDEBUG, "%s: %s", __FUNCTION__, pControl->Value());
+        if (strcmpi(pControl->Value(), "control") == 0)
+        {
+          std::string strStringValue;
+          if (XMLUtils::GetString(pControl, "texture", strStringValue))
+          {
+            const char* idAttr = pControl->Attribute("id");
+            int index = idAttr ? atoi(idAttr)-1 : -1;
+            if (index >= 0 && index < (int)(sizeof m_cursors/sizeof *m_cursors))
+            {
+              if (m_cursors[index].m_filename.size())
+                g_TextureManager.ReleaseTexture(m_cursors[index].m_filename, true);
+              m_cursors[index].m_filename.clear();
+              m_cursors[index].m_texture = g_TextureManager.Load(strStringValue);
+              if (m_cursors[index].m_texture.size())
+                m_cursors[index].m_filename = strStringValue;
+              CLog::Log(LOGDEBUG, "%s: texture(%d) %s (%d)", __FUNCTION__, index, strStringValue.c_str(), m_cursors[index].m_texture.size());
+              if (!m_cursors[index].m_texture.m_textures.empty())
+              {
+                CBaseTexture *t = (m_cursors[index].m_texture.m_textures)[0];
+                if (t)
+                  CLog::Log(LOGDEBUG, "%s: %dx%d %dx%d %dx%d %dx%d (%p,%p)", __FUNCTION__, t->GetPitch()>>2, t->GetRows(), t->GetWidth(), t->GetHeight(), t->GetOriginalWidth(), t->GetOriginalHeight(), t->GetTextureWidth(), t->GetTextureHeight(), t, t->GetPixels());
+              }
+            }
+          }
+        }
+        pControl = pControl->NextSiblingElement();
+      }
+    }
+    pChild = pChild->NextSiblingElement();
+  }
+  delete pRootElement;
+  return true;
+}
+#endif
+
 bool CWinEventsLinux::MessagePump()
 {
   if (!m_initialized)
@@ -55,13 +145,55 @@ bool CWinEventsLinux::MessagePump()
     m_devices.InitAvailable();
     m_checkHotplug = std::unique_ptr<CLinuxInputDevicesCheckHotplugged>(new CLinuxInputDevicesCheckHotplugged(m_devices));
     m_initialized = true;
+#ifdef TARGET_RASPBERRY_PI
+    LoadXML("Pointer.xml");
+#endif
   }
 
   bool ret = false;
   XBMC_Event event = {0};
+#ifdef TARGET_RASPBERRY_PI
+  bool active = CInputManager::GetInstance().IsMouseActive();
+  int64_t Now = CurrentHostCounter();
+  if (!active)
+  {
+    if (m_mouse_state != -1)
+    {
+      CLog::Log(LOGDEBUG, "%s: disable cursor %d->%d active:%d", __FUNCTION__, m_mouse_state, -1, active);
+      g_RBP.update_cursor(0, 0, 0);
+      m_mouse_state = -1;
+    }
+  }
+  else
+  {
+    int state = CInputManager::GetInstance().GetMouseState() - 1;
+    if (m_mouse_state != state)
+    {
+      if (state >= 0 && state < (int)(sizeof m_cursors/sizeof *m_cursors) && !m_cursors[state].m_texture.m_textures.empty())
+      {
+        CBaseTexture *t = (m_cursors[state].m_texture.m_textures)[0];
+        if (t)
+        {
+          CLog::Log(LOGDEBUG, "%s: %d->%d %dx%d (%p,%p)", __FUNCTION__, m_mouse_state, state, t->GetPitch()>>2, t->GetRows(), t, t->GetPixels());
+          g_RBP.set_cursor((const void *)t->GetPixels(), t->GetPitch()>>2, t->GetRows(), 0, 0);
+        }
+      }
+      m_mouse_state = state;
+    }
+  }
+#endif
   while (1)
   {
     event = m_devices.ReadEvent();
+#ifdef TARGET_RASPBERRY_PI
+    if (active && (event.type == XBMC_MOUSEMOTION || event.type == XBMC_MOUSEBUTTONDOWN || event.type == XBMC_MOUSEBUTTONUP))
+    {
+      if (event.type == XBMC_MOUSEMOTION)
+        g_RBP.update_cursor(event.motion.x, event.motion.y, 1);
+      m_last_mouse_move_time = Now;
+      //printf("%s: %d,%d %d %d,%d (%d,%d) act:%d\n", __FUNCTION__, event.motion.type, event.motion.which, event.motion.state, event.motion.x, event.motion.y, event.motion.xrel, event.motion.yrel, CInputManager::GetInstance().IsMouseActive());
+    }
+#endif
     if (event.type != XBMC_NOEVENT)
     {
       ret |= g_application.OnEvent(event);
@@ -72,6 +204,14 @@ bool CWinEventsLinux::MessagePump()
     }
   }
 
+#ifdef TARGET_RASPBERRY_PI
+  if (active && Now - m_last_mouse_move_time > 5 * 1000000000LL)
+  {
+    CLog::Log(LOGDEBUG, "%s: disable cursor %d->%d active:%d", __FUNCTION__, m_mouse_state, -1, active);
+    g_RBP.update_cursor(0, 0, 0);
+    m_mouse_state = -1;
+  }
+#endif
   return ret;
 }
 

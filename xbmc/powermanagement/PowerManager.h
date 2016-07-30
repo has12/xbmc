@@ -58,6 +58,8 @@ public:
 
 
   virtual bool PumpPowerEvents(IPowerEventsCallback *callback) { return false; }
+
+  virtual bool ProcessAction(const CAction& action) { return false; }
 };
 
 // This class will wrap and handle PowerSyscalls.
@@ -80,6 +82,7 @@ public:
   bool CanSuspend();
   bool CanHibernate();
   bool CanReboot();
+  bool IsSuspending() { return m_suspended; }
   
   int  BatteryLevel();
 
@@ -87,6 +90,7 @@ public:
 
   static void SettingOptionsShutdownStatesFiller(const CSetting *setting, std::vector< std::pair<std::string, int> > &list, int &current, void *data);
 
+  bool ProcessAction(const CAction& action);
 private:
   void OnSleep();
   void OnWake();
@@ -94,6 +98,7 @@ private:
   void OnLowBattery();
 
   IPowerSyscall *m_instance;
+  bool m_suspended;
 };
 
 extern CPowerManager g_powerManager;

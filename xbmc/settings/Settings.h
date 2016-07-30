@@ -106,6 +106,7 @@ public:
   static const std::string SETTING_VIDEOPLAYER_SEEKDELAY;
   static const std::string SETTING_VIDEOPLAYER_ADJUSTREFRESHRATE;
   static const std::string SETTING_VIDEOPLAYER_USEDISPLAYASCLOCK;
+  static const std::string SETTING_VIDEOPLAYER_ACCELERATEDPLAYBACK;
   static const std::string SETTING_VIDEOPLAYER_ERRORINASPECT;
   static const std::string SETTING_VIDEOPLAYER_STRETCH43;
   static const std::string SETTING_VIDEOPLAYER_TELETEXTENABLED;
@@ -254,6 +255,7 @@ public:
   static const std::string SETTING_AUDIOCDS_EJECTONRIP;
   static const std::string SETTING_MYMUSIC_SONGTHUMBINVIS;
   static const std::string SETTING_MYMUSIC_DEFAULTLIBVIEW;
+  static const std::string SETTING_PICTURES_USETAGS;
   static const std::string SETTING_PICTURES_GENERATETHUMBS;
   static const std::string SETTING_PICTURES_SHOWVIDEOS;
   static const std::string SETTING_PICTURES_DISPLAYRESOLUTION;

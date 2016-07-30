@@ -85,11 +85,67 @@
 #include "cores/DataCacheCore.h"
 #include "windowing/WindowingFactory.h"
 #include "DVDCodecs/DVDCodecUtils.h"
+#include "filesystem/SpecialProtocol.h"
 
 #include <iterator>
 
 using namespace PVR;
 using namespace KODI::MESSAGING;
+
+//#define DEBUG_PLAYBACK
+static void dump_packet(DemuxPacket *packet, bool video, bool audio)
+{
+  static CCriticalSection m_section;
+  static FILE *fp_video, *fp_audio;
+  if ((!video || !g_advancedSettings.CanLogComponent(LOGDUMPVIDEO)) &&
+      (!audio || !g_advancedSettings.CanLogComponent(LOGDUMPAUDIO)))
+    return;
+  const char *fname = video ? "video.dat" : "audio.dat";
+  FILE *&fp = video ? fp_video : fp_audio;
+  CSingleLock lock(m_section);
+  if (!packet)
+  {
+    if (fp)
+    {
+      CLog::Log(LOGNOTICE, "%s:: Closing file %p", __func__, fp);
+      fclose(fp);
+      fp = NULL;
+    }
+    return;
+  }
+  if (!fp)
+  {
+    char filename[1024];
+    strcpy(filename, CSpecialProtocol::TranslatePath("special://logpath").c_str());
+    strcat(filename, fname);
+#ifdef DEBUG_PLAYBACK
+    fp = fopen(filename, "rb");
+#else
+    fp = fopen(filename, "wb");
+#endif
+    CLog::Log(LOGNOTICE, "%s:: Opening file %s = %p", __func__, filename, fp);
+  }
+  if (fp)
+  {
+#ifdef DEBUG_PLAYBACK
+    DemuxPacket p = {0};
+    int s = fread(&p, sizeof p, 1, fp);
+    if (s==1)
+    {
+      packet->iSize = p.iSize;
+      packet->dts = p.dts;
+      packet->pts = p.pts;
+      _aligned_free(packet->pData);
+      packet->pData = (uint8_t*)_aligned_malloc(packet->iSize + FF_INPUT_BUFFER_PADDING_SIZE, 16);
+      fread(packet->pData, packet->iSize, 1, fp);
+    }
+#else
+    if (fwrite(packet, sizeof *packet, 1, fp) == 1)
+      fwrite(packet->pData, packet->iSize, 1, fp);
+#endif
+  }
+}
+
 
 void CSelectionStreams::Clear(StreamType type, StreamSource source)
 {
@@ -653,7 +709,6 @@ CVideoPlayer::CVideoPlayer(IPlayerCallback& callback)
   m_OmxPlayerState.bOmxWaitAudio       = false;
   m_OmxPlayerState.bOmxSentEOFs        = false;
   m_OmxPlayerState.threshold           = 0.2f;
-  m_OmxPlayerState.current_deinterlace = CMediaSettings::GetInstance().GetCurrentVideoSettings().m_DeinterlaceMode;
   m_OmxPlayerState.interlace_method    = VS_INTERLACEMETHOD_MAX;
 #ifdef HAS_OMXPLAYER
   m_omxplayer_mode                     = CSettings::GetInstance().GetBool(CSettings::SETTING_VIDEOPLAYER_USEOMXPLAYER);
@@ -1060,6 +1115,12 @@ bool CVideoPlayer::ReadPacket(DemuxPacket*& packet, CDemuxStream*& stream)
         return true;
     }
 
+    if(m_pDemuxer)
+    {
+      stream = m_pDemuxer->GetStream(packet->demuxerId, packet->iStreamId);
+      if (stream)
+        dump_packet(packet, CheckIsCurrent(m_CurrentVideo, stream, packet), CheckIsCurrent(m_CurrentAudio, stream, packet));
+    }
     UpdateCorrection(packet, m_offset_pts);
 
     if(packet->iStreamId < 0)
@@ -1637,6 +1698,8 @@ void CVideoPlayer::ProcessPacket(CDemuxStream* pStream, DemuxPacket* pPacket)
   // process packet if it belongs to selected stream.
   // for dvd's don't allow automatic opening of streams*/
 
+  CLog::Log(LOGDEBUG, "%s - audio:%d video:%d", __FUNCTION__, m_VideoPlayerAudio->GetLevel(), m_VideoPlayerVideo->GetLevel());
+
   if (CheckIsCurrent(m_CurrentAudio, pStream, pPacket))
     ProcessAudioData(pStream, pPacket);
   else if (CheckIsCurrent(m_CurrentVideo, pStream, pPacket))
@@ -1941,7 +2004,7 @@ void CVideoPlayer::HandlePlaySpeed()
         {
           double adjust = -1.0; // a unique value
           if (m_clock.GetSpeedAdjust() >= 0 && m_VideoPlayerAudio->GetLevel() < 5)
-            adjust = -0.01;
+            adjust = -0.05;
 
           if (m_clock.GetSpeedAdjust() < 0 && m_VideoPlayerAudio->GetLevel() > 10)
             adjust = 0.0;
@@ -3482,7 +3545,9 @@ void CVideoPlayer::SetSpeed(int iSpeed)
     return;
   
   m_newPlaySpeed = iSpeed * DVD_PLAYSPEED_NORMAL;
-  SetPlaySpeed(iSpeed * DVD_PLAYSPEED_NORMAL);
+  if (iSpeed == 2)
+    m_newPlaySpeed = CSettings::GetInstance().GetInt(CSettings::SETTING_VIDEOPLAYER_ACCELERATEDPLAYBACK)*DVD_PLAYSPEED_NORMAL/100;
+  SetPlaySpeed(m_newPlaySpeed);
 }
 
 int CVideoPlayer::GetSpeed()
@@ -3839,6 +3904,8 @@ bool CVideoPlayer::CloseStream(CCurrentStream& current, bool bWaitForBuffers)
 
   if (m_pDemuxer && STREAM_SOURCE_MASK(current.source) == STREAM_SOURCE_DEMUX)
     m_pDemuxer->EnableStream(current.demuxerId, current.id, false);
+
+  dump_packet(NULL, current.player == VideoPlayer_VIDEO, current.player == VideoPlayer_AUDIO);
 
   IDVDStreamPlayer* player = GetStreamPlayer(current.player);
   if(player)
@@ -5038,11 +5105,6 @@ bool CVideoPlayer::IsRenderingGuiLayer()
 bool CVideoPlayer::IsRenderingVideoLayer()
 {
   return m_renderManager.IsVideoLayer();
-}
-
-bool CVideoPlayer::Supports(EDEINTERLACEMODE mode)
-{
-  return m_renderManager.Supports(mode);
 }
 
 bool CVideoPlayer::Supports(EINTERLACEMETHOD method)

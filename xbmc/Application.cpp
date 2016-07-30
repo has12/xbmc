@@ -1929,7 +1929,6 @@ void CApplication::SetStandAlone(bool value)
   g_advancedSettings.m_handleMounting = m_bStandalone = value;
 }
 
-
 // OnAppCommand is called in response to a XBMC_APPCOMMAND event.
 // This needs to return true if it processed the appcommand or false if it didn't
 bool CApplication::OnAppCommand(const CAction &action)
@@ -2738,7 +2737,7 @@ void CApplication::FrameMove(bool processEvents, bool processGUI)
 #if defined(TARGET_RASPBERRY_PI) || defined(HAS_IMXVPU)
     // This code reduces rendering fps of the GUI layer when playing videos in fullscreen mode
     // it makes only sense on architectures with multiple layers
-    if (g_graphicsContext.IsFullScreenVideo() && !m_pPlayer->IsPausedPlayback() && m_pPlayer->IsRenderingVideoLayer())
+    if (m_pPlayer->IsPlayingVideo() && !m_pPlayer->IsPausedPlayback() && m_pPlayer->IsRenderingVideoLayer())
       fps = CSettings::GetInstance().GetInt(CSettings::SETTING_VIDEOPLAYER_LIMITGUIUPDATE);
 #endif
 
@@ -2751,6 +2750,8 @@ void CApplication::FrameMove(bool processEvents, bool processGUI)
     {
       if (!m_skipGuiRender)
         g_windowManager.Process(CTimeUtils::GetFrameTime());
+      else if (!g_graphicsContext.IsFullScreenVideo())
+        g_windowManager.FrameMove();
     }
     g_windowManager.FrameMove();
   }
@@ -3222,10 +3223,22 @@ PlayBackRet CApplication::PlayFile(CFileItem item, const std::string& player, bo
         // Can't do better as CGUIDialogPlayEject calls CMediaManager::IsDiscInDrive, which assumes default DVD drive anyway
         return MEDIA_DETECT::CAutorun::PlayDiscAskResume() ? PLAYBACK_OK : PLAYBACK_FAIL;
     }
-    else
 #endif
-      CGUIDialogOK::ShowAndGetInput(CVariant{435}, CVariant{436});
-
+    // Figure out Lines 1 and 2 of the dialog
+    std::string strLine1, strLine2;
+    CXBMCTinyXML discStubXML;
+    if (discStubXML.LoadFile(item.GetPath()))
+    {
+      TiXmlElement * pRootElement = discStubXML.RootElement();
+      if (!pRootElement || strcmpi(pRootElement->Value(), "discstub") != 0)
+        CLog::Log(LOGERROR, "Error loading %s, no <discstub> node", item.GetPath().c_str());
+      else
+      {
+        XMLUtils::GetString(pRootElement, "title", strLine1);
+        XMLUtils::GetString(pRootElement, "message", strLine2);
+      }
+    }
+    CGUIDialogOK::ShowAndGetInput(strLine1, strLine2);
     return PLAYBACK_OK;
   }
 
@@ -4143,6 +4156,7 @@ bool CApplication::OnMessage(CGUIMessage& message)
 
   case GUI_MSG_PLAYBACK_STARTED:
     {
+      int64_t Start = CurrentHostCounter();
 #ifdef TARGET_DARWIN_IOS
       CDarwinUtils::SetScheduling(message.GetMessage());
 #endif
@@ -4173,6 +4187,10 @@ bool CApplication::OnMessage(CGUIMessage& message)
       param["player"]["speed"] = 1;
       param["player"]["playerid"] = g_playlistPlayer.GetCurrentPlaylist();
       CAnnouncementManager::GetInstance().Announce(Player, "xbmc", "OnPlay", m_itemCurrentFile, param);
+      float duration = (CurrentHostCounter()-Start) * 1e-9;
+      if (duration > 0.1f)
+        CLog::LogF(LOGWARNING, "Suspiciously long time to handle GUI_MSG_PLAYBACK_STARTED (%.2fs)", duration);
+
       return true;
     }
     break;
@@ -5182,4 +5200,14 @@ bool CApplication::NotifyActionListeners(const CAction &action) const
   }
   
   return false;
+}
+
+bool CApplication::ScreenSaverDisablesAutoScrolling()
+{
+  bool onBlackDimScreenSaver = IsInScreenSaver() && m_screenSaver &&
+    (m_screenSaver->ID() == "screensaver.xbmc.builtin.black" ||
+     m_screenSaver->ID() == "screensaver.xbmc.builtin.dim");
+  bool openingStreams = m_pPlayer->IsPlaying() && g_windowManager.IsWindowActive(WINDOW_DIALOG_BUSY);
+  bool suspending = g_powerManager.IsSuspending();
+  return onBlackDimScreenSaver || openingStreams || suspending;
 }

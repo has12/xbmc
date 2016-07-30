@@ -42,6 +42,7 @@
 #include "windowing/WindowingFactory.h"
 #include "settings/DisplaySettings.h"
 #include "settings/Settings.h"
+#include "settings/AdvancedSettings.h"
 #include "settings/MediaSettings.h"
 #include "cores/VideoPlayer/VideoRenderers/RenderFormats.h"
 #include "cores/VideoPlayer/VideoRenderers/RenderFlags.h"
@@ -349,11 +350,9 @@ void OMXPlayerVideo::Process()
 
     if (pMsg->IsType(CDVDMsg::GENERAL_SYNCHRONIZE))
     {
+      CLog::Log(LOGDEBUG, "COMXPlayerVideo - CDVDMsg::GENERAL_SYNCHRONIZE");
       if(((CDVDMsgGeneralSynchronize*)pMsg)->Wait(100, SYNCSOURCE_VIDEO))
-      {
-        CLog::Log(LOGDEBUG, "COMXPlayerVideo - CDVDMsg::GENERAL_SYNCHRONIZE");
-
-      }
+        CLog::Log(LOGDEBUG, "COMXPlayerVideo - CDVDMsg::GENERAL_SYNCHRONIZED");
       else
         m_messageQueue.Put(pMsg->Acquire(), 1); /* push back as prio message, to process other prio messages */
     }
@@ -414,10 +413,10 @@ void OMXPlayerVideo::Process()
       DemuxPacket* pPacket = ((CDVDMsgDemuxerPacket*)pMsg)->GetPacket();
       bool bPacketDrop     = ((CDVDMsgDemuxerPacket*)pMsg)->GetPacketDrop();
 
-      #ifdef _DEBUG
-      CLog::Log(LOGINFO, "Video: dts:%.0f pts:%.0f size:%d (s:%d f:%d d:%d l:%d) s:%d %d/%d late:%d\n", pPacket->dts, pPacket->pts, 
+      if (g_advancedSettings.CanLogComponent(LOGOMXPLAYER))
+        CLog::Log(LOGINFO, "Video: dts:%.0f pts:%.0f size:%d (s:%d f:%d d:%d l:%d) s:%d %d/%d late:%d\n", pPacket->dts, pPacket->pts,
           (int)pPacket->iSize, m_syncState, m_flush, bPacketDrop, m_stalled, m_speed, 0, 0, 0);
-      #endif
+
       if (m_messageQueue.GetDataSize() == 0
       ||  m_speed < 0)
       {
@@ -534,7 +533,7 @@ bool OMXPlayerVideo::OpenDecoder()
   else
     m_fForcedAspectRatio = 0.0;
 
-  bool bVideoDecoderOpen = m_omxVideo.Open(m_hints, m_av_clock, CMediaSettings::GetInstance().GetCurrentVideoSettings().m_DeinterlaceMode, m_hdmi_clock_sync);
+  bool bVideoDecoderOpen = m_omxVideo.Open(m_hints, m_av_clock, m_hdmi_clock_sync);
   m_omxVideo.RegisterResolutionUpdateCallBack((void *)this, ResolutionUpdateCallBack);
 
   if(!bVideoDecoderOpen)
@@ -583,12 +582,14 @@ void OMXPlayerVideo::SetSpeed(int speed)
 
 std::string OMXPlayerVideo::GetPlayerInfo()
 {
+  int width, height;
+  m_processInfo.GetVideoDimensions(width, height);
   double match = 0.0f, phase = 0.0f, pll = 0.0f;
   std::ostringstream s;
-  s << "fr:"     << std::fixed << std::setprecision(3) << m_fFrameRate;
-  s << ", vq:"   << std::setw(2) << std::min(99,GetLevel()) << "%";
-  s << ", dc:"   << m_codecname;
+  s << "vq:"   << std::setw(2) << std::min(99,GetLevel()) << "%";
   s << ", Mb/s:" << std::fixed << std::setprecision(2) << (double)GetVideoBitrate() / (1024.0*1024.0);
+  s << ", dc:"   << m_processInfo.GetVideoDecoderName().c_str();
+  s << ", " << width << "x" << height << "[" << std::setprecision(2) << m_processInfo.GetVideoDAR() << "]@" << std::fixed << std::setprecision(3) << m_processInfo.GetVideoFps() << ", deint:" << m_processInfo.GetVideoDeintMethod();
   if (m_omxVideo.GetPlayerInfo(match, phase, pll))
   {
      s << ", match:" << std::fixed << std::setprecision(2) << match;
@@ -727,9 +728,6 @@ void OMXPlayerVideo::ResolutionUpdateCallBack(uint32_t width, uint32_t height, f
     m_bAllowFullscreen = false; // only allow on first configure
   }
 
-  m_processInfo.SetVideoDimensions(width, height);
-  m_processInfo.SetVideoDAR(display_aspect);
-
   unsigned int iDisplayWidth  = width;
   unsigned int iDisplayHeight = height;
 
@@ -741,6 +739,8 @@ void OMXPlayerVideo::ResolutionUpdateCallBack(uint32_t width, uint32_t height, f
 
   m_fFrameRate = DVD_TIME_BASE / CDVDCodecUtils::NormalizeFrameduration((double)DVD_TIME_BASE / framerate);
   m_processInfo.SetVideoFps(m_fFrameRate);
+  m_processInfo.SetVideoDimensions(width, height);
+  m_processInfo.SetVideoDAR((float)iDisplayWidth / (float)iDisplayHeight);
 
   CLog::Log(LOGDEBUG,"%s - change configuration. video:%dx%d. framerate: %4.2f. %dx%d format: BYPASS",
       __FUNCTION__, video_width, video_height, m_fFrameRate, iDisplayWidth, iDisplayHeight);

@@ -308,6 +308,15 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
     if (tryhw && m_decoderState == STATE_NONE)
     {
       m_decoderState = STATE_HW_SINGLE;
+#ifdef TARGET_RASPBERRY_PI
+      int num_threads = g_cpuInfo.getCPUCount() * 3 / 2;
+      num_threads = std::max(1, std::min(num_threads, 16));
+      if (pCodec->id == AV_CODEC_ID_HEVC)
+        num_threads = 8;
+      m_pCodecContext->thread_count = num_threads;
+      m_pCodecContext->thread_safe_callbacks = 0;
+      CLog::Log(LOGDEBUG, "CDVDVideoCodecFFmpeg - open frame threaded with %d threads", num_threads);
+#endif
     }
     else
     {
@@ -447,7 +456,6 @@ void CDVDVideoCodecFFmpeg::SetDropState(bool bDrop)
 void CDVDVideoCodecFFmpeg::SetFilters()
 {
   // ask codec to do deinterlacing if possible
-  EDEINTERLACEMODE mDeintMode = CMediaSettings::GetInstance().GetCurrentVideoSettings().m_DeinterlaceMode;
   EINTERLACEMETHOD mInt = CMediaSettings::GetInstance().GetCurrentVideoSettings().m_InterlaceMethod;
 
   if (mInt != VS_INTERLACEMETHOD_DEINTERLACE && mInt != VS_INTERLACEMETHOD_DEINTERLACE_HALF)
@@ -455,14 +463,14 @@ void CDVDVideoCodecFFmpeg::SetFilters()
 
   unsigned int filters = 0;
 
-  if (mDeintMode != VS_DEINTERLACEMODE_OFF)
+  if (mInt != VS_INTERLACEMETHOD_NONE)
   {
     if (mInt == VS_INTERLACEMETHOD_DEINTERLACE)
       filters = FILTER_DEINTERLACE_ANY;
     else if (mInt == VS_INTERLACEMETHOD_DEINTERLACE_HALF)
       filters = FILTER_DEINTERLACE_ANY | FILTER_DEINTERLACE_HALFED;
 
-    if (mDeintMode == VS_DEINTERLACEMODE_AUTO && filters)
+    if (filters)
       filters |= FILTER_DEINTERLACE_FLAGGED;
   }
 

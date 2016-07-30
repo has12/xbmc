@@ -23,9 +23,13 @@
 
 #include <assert.h>
 #include "settings/Settings.h"
+#include "settings/AdvancedSettings.h"
 #include "utils/log.h"
 
 #include "cores/omxplayer/OMXImage.h"
+
+#include "guilib/GraphicContext.h"
+#include "settings/DisplaySettings.h"
 
 #include <sys/ioctl.h>
 #include "rpi/rpi_user_vcsm.h"
@@ -45,6 +49,11 @@ CRBP::CRBP()
   m_DllBcmHost      = new DllBcmHost();
   m_OMX             = new COMXCore();
   m_display = DISPMANX_NO_HANDLE;
+  m_last_pll_adjust = 1.0;
+  m_p = NULL;
+  m_x = 0;
+  m_y = 0;
+  m_enabled = 0;
   m_mb = mbox_open();
   vcsm_init();
   m_vsync_count = 0;
@@ -56,6 +65,12 @@ CRBP::~CRBP()
   Deinitialize();
   delete m_OMX;
   delete m_DllBcmHost;
+}
+
+void CRBP::InitializeSettings()
+{
+  if (m_initialized && g_advancedSettings.m_cacheMemSize == ~0U)
+    g_advancedSettings.m_cacheMemSize = m_arm_mem < 256 ? 1024 * 1024 * 2 : 1024 * 1024 * 20;
 }
 
 bool CRBP::Initialize()
@@ -97,6 +112,11 @@ bool CRBP::Initialize()
   if (!m_gui_resolution_limit)
     m_gui_resolution_limit = m_gpu_mem < 128 ? 720:1080;
 
+  InitializeSettings();
+
+  // in case xbcm was restarted when suspended
+  ResumeVideoOutput();
+
   g_OMXImage.Initialize();
   m_omx_image_init = true;
   return true;
@@ -109,6 +129,7 @@ void CRBP::LogFirmwareVerison()
   response[sizeof(response) - 1] = '\0';
   CLog::Log(LOGNOTICE, "Raspberry PI firmware version: %s", response);
   CLog::Log(LOGNOTICE, "ARM mem: %dMB GPU mem: %dMB MPG2:%d WVC1:%d", m_arm_mem, m_gpu_mem, m_codec_mpg2_enabled, m_codec_wvc1_enabled);
+  CLog::Log(LOGNOTICE, "cache.memorysize: %dMB",  g_advancedSettings.m_cacheMemSize >> 20);
   m_DllBcmHost->vc_gencmd(response, sizeof response, "get_config int");
   response[sizeof(response) - 1] = '\0';
   CLog::Log(LOGNOTICE, "Config:\n%s", response);
@@ -131,6 +152,7 @@ DISPMANX_DISPLAY_HANDLE_T CRBP::OpenDisplay(uint32_t device)
     m_display = vc_dispmanx_display_open( 0 /*screen*/ );
     int s = vc_dispmanx_vsync_callback(m_display, vsync_callback_static, (void *)this);
     assert(s == 0);
+    init_cursor();
   }
   return m_display;
 }
@@ -138,11 +160,13 @@ DISPMANX_DISPLAY_HANDLE_T CRBP::OpenDisplay(uint32_t device)
 void CRBP::CloseDisplay(DISPMANX_DISPLAY_HANDLE_T display)
 {
   CSingleLock lock(m_critSection);
+  uninit_cursor();
   assert(display == m_display);
   int s = vc_dispmanx_vsync_callback(m_display, NULL, NULL);
   assert(s == 0);
   vc_dispmanx_display_close(m_display);
   m_display = DISPMANX_NO_HANDLE;
+  m_last_pll_adjust = 1.0;
 }
 
 void CRBP::GetDisplaySize(int &width, int &height)
@@ -256,10 +280,27 @@ void CRBP::Deinitialize()
   m_omx_image_init  = false;
   m_initialized     = false;
   m_omx_initialized = false;
+  uninit_cursor();
+  delete m_p;
+  m_p = NULL;
   if (m_mb)
     mbox_close(m_mb);
   m_mb = 0;
   vcsm_exit();
+}
+
+void CRBP::SuspendVideoOutput()
+{
+  CLog::Log(LOGDEBUG, "Raspberry PI suspending video output\n");
+  char response[80];
+  m_DllBcmHost->vc_gencmd(response, sizeof response, "display_power 0");
+}
+
+void CRBP::ResumeVideoOutput()
+{
+  char response[80];
+  m_DllBcmHost->vc_gencmd(response, sizeof response, "display_power 1");
+  CLog::Log(LOGDEBUG, "Raspberry PI resuming video output\n");
 }
 
 static int mbox_property(int file_desc, void *buf)
@@ -328,6 +369,52 @@ unsigned mem_unlock(int file_desc, unsigned handle)
    return p[5];
 }
 
+unsigned int mailbox_set_cursor_info(int file_desc, int width, int height, int format, uint32_t buffer, int hotspotx, int hotspoty)
+{
+   int i=0;
+   unsigned int p[32];
+   p[i++] = 0; // size
+   p[i++] = 0x00000000; // process request
+   p[i++] = 0x00008010; // set cursor state
+   p[i++] = 24; // buffer size
+   p[i++] = 24; // data size
+
+   p[i++] = width;
+   p[i++] = height;
+   p[i++] = format;
+   p[i++] = buffer;           // ptr to VC memory buffer. Doesn't work in 64bit....
+   p[i++] = hotspotx;
+   p[i++] = hotspoty;
+
+   p[i++] = 0x00000000; // end tag
+   p[0] = i*sizeof(*p); // actual size
+
+   mbox_property(file_desc, p);
+   return p[5];
+
+}
+
+unsigned int mailbox_set_cursor_position(int file_desc, int enabled, int x, int y)
+{
+   int i=0;
+   unsigned p[32];
+   p[i++] = 0; // size
+   p[i++] = 0x00000000; // process request
+   p[i++] = 0x00008011; // set cursor state
+   p[i++] = 12; // buffer size
+   p[i++] = 12; // data size
+
+   p[i++] = enabled;
+   p[i++] = x;
+   p[i++] = y;
+
+   p[i++] = 0x00000000; // end tag
+   p[0] = i*sizeof *p; // actual size
+
+   mbox_property(file_desc, p);
+   return p[5];
+}
+
 CGPUMEM::CGPUMEM(unsigned int numbytes, bool cached)
 {
   m_numbytes = numbytes;
@@ -357,6 +444,273 @@ void CGPUMEM::Flush()
   iocache.s[0].addr = (int) m_arm;
   iocache.s[0].size  = m_numbytes;
   vcsm_clean_invalid( &iocache );
+}
+
+#define T 0
+#define W 0xffffffff
+#define B 0xff000000
+
+const static uint32_t default_cursor_pixels[] =
+{
+   B,B,B,B,B,B,B,B,B,T,T,T,T,T,T,T,
+   B,W,W,W,W,W,W,B,T,T,T,T,T,T,T,T,
+   B,W,W,W,W,W,B,T,T,T,T,T,T,T,T,T,
+   B,W,W,W,W,B,T,T,T,T,T,T,T,T,T,T,
+   B,W,W,W,W,W,B,T,T,T,T,T,T,T,T,T,
+   B,W,W,B,W,W,W,B,T,T,T,T,T,T,T,T,
+   B,W,B,T,B,W,W,W,B,T,T,T,T,T,T,T,
+   B,B,T,T,T,B,W,W,W,B,T,T,T,T,T,T,
+   B,T,T,T,T,T,B,W,W,W,B,T,T,T,T,T,
+   T,T,T,T,T,T,T,B,W,W,W,B,T,T,T,T,
+   T,T,T,T,T,T,T,T,B,W,W,W,B,T,T,T,
+   T,T,T,T,T,T,T,T,T,B,W,W,W,B,T,T,
+   T,T,T,T,T,T,T,T,T,T,B,W,W,W,B,T,
+   T,T,T,T,T,T,T,T,T,T,T,B,W,W,W,B,
+   T,T,T,T,T,T,T,T,T,T,T,T,B,W,B,T,
+   T,T,T,T,T,T,T,T,T,T,T,T,T,B,T,T
+};
+
+#undef T
+#undef W
+#undef B
+
+void CRBP::init_cursor()
+{
+  CLog::Log(LOGDEBUG, "%s", __FUNCTION__);
+  if (!m_mb)
+    return;
+  if (!m_p)
+    m_p = new CGPUMEM(64 * 64 * 4, false);
+  if (m_p && m_p->m_arm && m_p->m_vc)
+    set_cursor(default_cursor_pixels, 16, 16, 0, 0);
+}
+
+void CRBP::set_cursor(const void *pixels, int width, int height, int hotspot_x, int hotspot_y)
+{
+  if (!m_mb || !m_p || !m_p->m_arm || !m_p->m_vc || !pixels || width * height > 64 * 64)
+    return;
+  CLog::Log(LOGDEBUG, "%s %dx%d %p", __FUNCTION__, width, height, pixels);
+  memcpy(m_p->m_arm, pixels, width * height * 4);
+  unsigned int s = mailbox_set_cursor_info(m_mb, width, height, 0, m_p->m_vc, hotspot_x, hotspot_y);
+  assert(s == 0);
+}
+
+void CRBP::update_cursor(int x, int y, bool enabled)
+{
+  if (!m_mb || !m_p || !m_p->m_arm || !m_p->m_vc)
+    return;
+
+  RESOLUTION res = g_graphicsContext.GetVideoResolution();
+  CRect gui(0, 0, CDisplaySettings::GetInstance().GetResolutionInfo(res).iWidth, CDisplaySettings::GetInstance().GetResolutionInfo(res).iHeight);
+  CRect display(0, 0, CDisplaySettings::GetInstance().GetResolutionInfo(res).iScreenWidth, CDisplaySettings::GetInstance().GetResolutionInfo(res).iScreenHeight);
+
+  int x2 = x * display.Width()  / gui.Width();
+  int y2 = y * display.Height() / gui.Height();
+
+  if (g_graphicsContext.GetStereoMode() == RENDER_STEREO_MODE_SPLIT_HORIZONTAL)
+    y2 *= 2;
+  else if (g_graphicsContext.GetStereoMode() == RENDER_STEREO_MODE_SPLIT_VERTICAL)
+    x2 *= 2;
+  if (m_x != x2 || m_y != y2 || m_enabled != enabled)
+    mailbox_set_cursor_position(m_mb, enabled, x2, y2);
+  m_x = x2;
+  m_y = y2;
+  m_enabled = enabled;
+}
+
+void CRBP::uninit_cursor()
+{
+  if (!m_mb || !m_p || !m_p->m_arm || !m_p->m_vc)
+    return;
+  CLog::Log(LOGDEBUG, "%s", __FUNCTION__);
+  mailbox_set_cursor_position(m_mb, 0, 0, 0);
+}
+
+double CRBP::AdjustHDMIClock(double adjust)
+{
+  char response[80];
+  vc_gencmd(response, sizeof response, "hdmi_adjust_clock %f", adjust);
+  char *p = strchr(response, '=');
+  if (p)
+    m_last_pll_adjust = atof(p+1);
+  CLog::Log(LOGDEBUG, "CRBP::%s(%.4f) = %.4f", __func__, adjust, m_last_pll_adjust);
+  return m_last_pll_adjust;
+}
+
+
+#include "cores/VideoPlayer/DVDClock.h"
+#include "cores/VideoPlayer/DVDCodecs/DVDCodecUtils.h"
+#include "utils/log.h"
+
+extern "C"
+{
+  #include "libswscale/swscale.h"
+  #include "libavutil/imgutils.h"
+  #include "libavcodec/avcodec.h"
+}
+
+CPixelConverter::CPixelConverter() :
+  m_width(0),
+  m_height(0),
+  m_swsContext(nullptr),
+  m_buf(nullptr),
+  m_processInfo(CProcessInfo::CreateInstance())
+{
+}
+
+static struct {
+  AVPixelFormat pixfmt;
+  AVPixelFormat targetfmt;
+} pixfmt_target_table[] =
+{
+   {AV_PIX_FMT_BGR0,      AV_PIX_FMT_BGR0},
+   {AV_PIX_FMT_RGB565LE,  AV_PIX_FMT_RGB565LE},
+   {AV_PIX_FMT_NONE,      AV_PIX_FMT_NONE}
+};
+
+static AVPixelFormat pixfmt_to_target(AVPixelFormat pixfmt)
+{
+  unsigned int i;
+  for (i = 0; pixfmt_target_table[i].pixfmt != AV_PIX_FMT_NONE; i++)
+    if (pixfmt_target_table[i].pixfmt == pixfmt)
+      break;
+  return pixfmt_target_table[i].targetfmt;
+}
+
+bool CPixelConverter::Open(AVPixelFormat pixfmt, AVPixelFormat targetfmt, unsigned int width, unsigned int height, void *opaque)
+{
+  targetfmt = pixfmt_to_target(pixfmt);
+  CLog::Log(LOGDEBUG, "CPixelConverter::%s: pixfmt:%d(%s) targetfmt:%d(%s) %dx%d opaque:%p", __FUNCTION__, pixfmt, av_get_pix_fmt_name(pixfmt), targetfmt, av_get_pix_fmt_name(targetfmt), width, height, opaque);
+  if (targetfmt == AV_PIX_FMT_NONE || width == 0 || height == 0)
+  {
+    CLog::Log(LOGERROR, "%s: Invalid target pixel format: %d", __FUNCTION__, targetfmt);
+    assert(0);
+    return false;
+  }
+
+  m_vcffmpeg = new CDVDVideoCodecFFmpeg(*m_processInfo);
+  m_decoder = new MMAL::CDecoder;
+
+  memset(&m_avctx, 0, sizeof m_avctx);
+  m_avctx.pix_fmt = targetfmt;
+  m_avctx.opaque = (void *)m_vcffmpeg;
+  CDVDStreamInfo hints = {};
+  hints.codec = AV_CODEC_ID_H264; // dummy
+  CDVDCodecOptions options =  {};
+  if (!m_vcffmpeg->Open(hints, options))
+    CLog::Log(LOGERROR, "%s: Unable to open DVDVideoCodecFFMpeg", __FUNCTION__);
+
+  m_avctx.hwaccel_context = opaque;
+  if (m_decoder->Open(&m_avctx, &m_avctx, m_avctx.pix_fmt, 1))
+    m_vcffmpeg->SetHardware(m_decoder);
+  else
+    CLog::Log(LOGERROR, "%s: Unable to open MMALFFmpeg", __FUNCTION__);
+
+  m_width = width;
+  m_height = height;
+
+  m_swsContext = sws_getContext(width, height, pixfmt,
+                                width, height, m_avctx.pix_fmt,
+                                SWS_FAST_BILINEAR, NULL, NULL, NULL);
+  if (!m_swsContext)
+  {
+    CLog::Log(LOGERROR, "%s: Failed to create swscale context", __FUNCTION__);
+    return false;
+  }
+
+  return true;
+}
+
+// allocate a new picture (AV_PIX_FMT_YUV420P)
+AVFrame* CPixelConverter::AllocatePicture(int iWidth, int iHeight)
+{
+  AVFrame* frame = new AVFrame;
+  if (frame)
+  {
+    frame->width = iWidth;
+    frame->height = iHeight;
+    frame->format = m_avctx.pix_fmt;
+    m_decoder->FFGetBuffer(&m_avctx, frame, 0);
+  }
+  return frame;
+}
+
+void CPixelConverter::FreePicture(AVFrame* frame)
+{
+  assert(frame);
+  AVBufferRef *buf = frame->buf[0];
+  CGPUMEM *gmem = (CGPUMEM *)av_buffer_get_opaque(buf);
+  m_decoder->FFReleaseBuffer(gmem, nullptr);
+  delete frame;
+}
+
+void CPixelConverter::Dispose()
+{
+  delete m_vcffmpeg;
+  m_vcffmpeg = nullptr;
+
+  m_decoder->Close();
+  m_decoder = nullptr;
+
+  delete m_processInfo;
+  m_processInfo = nullptr;
+
+  if (m_swsContext)
+  {
+    sws_freeContext(m_swsContext);
+    m_swsContext = nullptr;
+  }
+
+  if (m_buf)
+  {
+    FreePicture(m_buf);
+    m_buf = nullptr;
+  }
+}
+
+bool CPixelConverter::Decode(const uint8_t* pData, unsigned int size)
+{
+  if (pData == nullptr || size == 0 || m_swsContext == nullptr)
+    return false;
+
+  if (m_buf)
+    FreePicture(m_buf);
+  m_buf = AllocatePicture(m_width, m_height);
+  if (!m_buf)
+  {
+    CLog::Log(LOGERROR, "%s: Failed to allocate picture of dimensions %dx%d", __FUNCTION__, m_width, m_height);
+    return false;
+  }
+
+  uint8_t* dataMutable = const_cast<uint8_t*>(pData);
+
+  const int stride = size / m_height;
+
+  uint8_t* src[] =       { dataMutable,         0,                   0,                   0 };
+  int      srcStride[] = { stride,              0,                   0,                   0 };
+  uint8_t* dst[] =       { m_buf->data[0],      m_buf->data[1],      m_buf->data[2],      0 };
+  int      dstStride[] = { m_buf->linesize[0],  m_buf->linesize[1],  m_buf->linesize[2],  0 };
+
+  sws_scale(m_swsContext, src, srcStride, 0, m_height, dst, dstStride);
+
+  return true;
+}
+
+void CPixelConverter::GetPicture(DVDVideoPicture& dvdVideoPicture)
+{
+  if (!m_decoder->GetPicture(&m_avctx, m_buf, &dvdVideoPicture))
+    CLog::Log(LOGERROR, "CPixelConverter::AllocatePicture, failed to GetPicture.");
+
+  dvdVideoPicture.dts            = DVD_NOPTS_VALUE;
+  dvdVideoPicture.pts            = DVD_NOPTS_VALUE;
+
+  dvdVideoPicture.iFlags         = 0; // *not* DVP_FLAG_ALLOCATED
+  dvdVideoPicture.color_matrix   = 4; // CONF_FLAGS_YUVCOEF_BT601
+  dvdVideoPicture.color_range    = 0; // *not* CONF_FLAGS_YUV_FULLRANGE
+  dvdVideoPicture.iWidth         = m_width;
+  dvdVideoPicture.iHeight        = m_height;
+  dvdVideoPicture.iDisplayWidth  = m_width; // TODO: Update if aspect ratio changes
+  dvdVideoPicture.iDisplayHeight = m_height;
 }
 
 #endif

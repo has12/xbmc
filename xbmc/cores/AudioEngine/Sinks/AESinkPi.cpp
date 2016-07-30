@@ -35,7 +35,6 @@
 #define CLASSNAME "CAESinkPi"
 
 #define NUM_OMX_BUFFERS 2
-#define AUDIO_PLAYBUFFER (0.1) // 100ms
 
 static const unsigned int PassthroughSampleRates[] = { 8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 88200, 96000, 176400, 192000 };
 
@@ -43,6 +42,7 @@ CAEDeviceInfo CAESinkPi::m_info;
 
 CAESinkPi::CAESinkPi() :
     m_sinkbuffer_sec_per_byte(0),
+    m_latency(0),
     m_Initialized(false),
     m_submitted(0),
     m_omx_output(NULL),
@@ -191,6 +191,9 @@ bool CAESinkPi::Initialize(AEAudioFormat &format, std::string &device)
   m_initDevice = device;
   m_initFormat = format;
 
+  m_latency = CSettings::GetInstance().GetInt("audiooutput.latency") * 1e-3;
+  m_latency = std::max(m_latency, 50e-3);
+
   if (m_passthrough || CSettings::GetInstance().GetString(CSettings::SETTING_AUDIOOUTPUT_AUDIODEVICE) == "PI:HDMI")
     m_output = AESINKPI_HDMI;
   else if (CSettings::GetInstance().GetString(CSettings::SETTING_AUDIOOUTPUT_AUDIODEVICE) == "PI:Analogue")
@@ -212,9 +215,7 @@ bool CAESinkPi::Initialize(AEAudioFormat &format, std::string &device)
   unsigned int sample_size = CAEUtil::DataFormatToBits(format.m_dataFormat) >> 3;
   format.m_frameSize     = sample_size * channels;
   format.m_sampleRate    = std::max(8000U, std::min(192000U, format.m_sampleRate));
-  format.m_frames        = format.m_sampleRate * AUDIO_PLAYBUFFER / NUM_OMX_BUFFERS;
-
-  SetAudioProps(m_passthrough, GetChannelMap(format.m_channelLayout, m_passthrough));
+  format.m_frames        = format.m_sampleRate * m_latency / NUM_OMX_BUFFERS;
 
   m_format = format;
   m_sinkbuffer_sec_per_byte = 1.0 / (double)(m_format.m_frameSize * m_format.m_sampleRate);
@@ -222,6 +223,12 @@ bool CAESinkPi::Initialize(AEAudioFormat &format, std::string &device)
   CLog::Log(LOGDEBUG, "%s:%s Format:%d Channels:%d Samplerate:%d framesize:%d bufsize:%d bytes/s=%.2f dest=%s", CLASSNAME, __func__,
                 m_format.m_dataFormat, channels, m_format.m_sampleRate, m_format.m_frameSize, m_format.m_frameSize * m_format.m_frames, 1.0/m_sinkbuffer_sec_per_byte,
                 CSettings::GetInstance().GetString(CSettings::SETTING_AUDIOOUTPUT_AUDIODEVICE).c_str());
+
+  // magic value used when omxplayer is playing - want sink to be disabled
+  if (m_passthrough && m_format.m_streamInfo.m_sampleRate == 16000)
+    return true;
+
+  SetAudioProps(m_passthrough, GetChannelMap(m_format.m_channelLayout, m_passthrough));
 
   OMX_ERRORTYPE omx_err   = OMX_ErrorNone;
 
@@ -426,14 +433,16 @@ void CAESinkPi::GetDelay(AEDelayStatus& status)
 
 double CAESinkPi::GetCacheTotal()
 {
-  return AUDIO_PLAYBUFFER;
+  return m_latency;
 }
 
 unsigned int CAESinkPi::AddPackets(uint8_t **data, unsigned int frames, unsigned int offset)
 {
   if (!m_Initialized || !m_omx_output || !frames)
+  {
+    Sleep(10);
     return frames;
-
+  }
   OMX_ERRORTYPE omx_err   = OMX_ErrorNone;
   OMX_BUFFERHEADERTYPE *omx_buffer = NULL;
 
@@ -477,8 +486,8 @@ unsigned int CAESinkPi::AddPackets(uint8_t **data, unsigned int frames, unsigned
   m_submitted++;
   GetDelay(status);
   delay = status.GetDelay();
-  if (delay > AUDIO_PLAYBUFFER)
-    Sleep((int)(1000.0f * (delay - AUDIO_PLAYBUFFER)));
+  if (delay > m_latency)
+    Sleep((int)(1000.0f * (delay - m_latency)));
   return frames;
 }
 

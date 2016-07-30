@@ -105,7 +105,6 @@ public:
 
   virtual bool         SupportsMultiPassRendering() { return false; };
   virtual bool         Supports(ERENDERFEATURE feature);
-  virtual bool         Supports(EDEINTERLACEMODE mode);
   virtual bool         Supports(EINTERLACEMETHOD method);
   virtual bool         Supports(ESCALINGMETHOD method);
 
@@ -136,6 +135,7 @@ protected:
   RENDER_STEREO_MODE        m_video_stereo_mode;
   RENDER_STEREO_MODE        m_display_stereo_mode;
   bool                      m_StereoInvert;
+  float                     m_sharpness;
 
   CCriticalSection m_sharedSection;
   MMAL_COMPONENT_T *m_vout;
@@ -145,7 +145,9 @@ protected:
   CThread m_processThread;
   MMAL_BUFFER_HEADER_T m_quitpacket;
   double m_error;
-
+  double m_lastPts;
+  double m_frameInterval;
+  double m_frameIntervalDiff;
   uint32_t m_vout_width, m_vout_height, m_vout_aligned_width, m_vout_aligned_height;
   // deinterlace
   MMAL_COMPONENT_T *m_deint;
@@ -163,5 +165,6 @@ protected:
   uint32_t m_vsync_count;
   void ReleaseBuffers();
   void UnInitMMAL();
+  void UpdateFramerateStats(double pts);
   virtual void Run() override;
 };
